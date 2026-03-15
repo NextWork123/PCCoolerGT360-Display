@@ -14,9 +14,12 @@ Usage as a library:
         ctrl.send_image(data, "test.png")
 """
 
-from .controller import DisplayController
-from .image_processor import ImageProcessor, ScreensaverGenerator, BUILTIN_IMAGE_B64, PIL_AVAILABLE
-from .display_settings import set_brightness, set_orientation, probe_orientation_protocol
+from __future__ import annotations
+
+import importlib
+from typing import TYPE_CHECKING
+
+# Lightweight constants - safe to import immediately
 from .constants import (
     VENDOR_ID,
     PRODUCT_ID,
@@ -27,15 +30,66 @@ from .constants import (
     PACKET_END,
 )
 
+# Lazy import machinery for heavy modules
+_module_cache: dict = {}
+
+
+def __getattr__(name: str):
+    """Lazy import heavy modules on first access."""
+    if name in _module_cache:
+        return _module_cache[name]
+    
+    if name == "DisplayController":
+        from .controller import DisplayController
+        _module_cache[name] = DisplayController
+        return DisplayController
+    
+    if name == "ImageProcessor":
+        from .image_processor import ImageProcessor
+        _module_cache[name] = ImageProcessor
+        return ImageProcessor
+    
+    if name == "ScreensaverGenerator":
+        from .image_processor import ScreensaverGenerator
+        _module_cache[name] = ScreensaverGenerator
+        return ScreensaverGenerator
+    
+    if name == "BUILTIN_IMAGE_B64":
+        from .image_processor import BUILTIN_IMAGE_B64
+        _module_cache[name] = BUILTIN_IMAGE_B64
+        return BUILTIN_IMAGE_B64
+    
+    if name == "PIL_AVAILABLE":
+        from .image_processor import PIL_AVAILABLE
+        _module_cache[name] = PIL_AVAILABLE
+        return PIL_AVAILABLE
+    
+    if name in ("set_brightness", "set_orientation", "probe_orientation_protocol"):
+        from . import display_settings
+        func = getattr(display_settings, name)
+        _module_cache[name] = func
+        return func
+    
+    if name == "Config":
+        from .config import Config
+        _module_cache[name] = Config
+        return Config
+    
+    if name == "setup_logging":
+        from .logger import setup_logging
+        _module_cache[name] = setup_logging
+        return setup_logging
+    
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
+    # Classes (lazy loaded)
     "DisplayController",
     "ImageProcessor",
     "ScreensaverGenerator",
-    "BUILTIN_IMAGE_B64",
-    "PIL_AVAILABLE",
-    "set_brightness",
-    "set_orientation",
-    "probe_orientation_protocol",
+    "Config",
+    # Constants (immediate)
     "VENDOR_ID",
     "PRODUCT_ID",
     "DISPLAY_WIDTH",
@@ -43,5 +97,13 @@ __all__ = [
     "DISPLAY_MODES",
     "PACKET_START",
     "PACKET_END",
+    # Data
+    "BUILTIN_IMAGE_B64",
+    "PIL_AVAILABLE",
+    # Functions (lazy loaded)
+    "set_brightness",
+    "set_orientation",
+    "probe_orientation_protocol",
+    "setup_logging",
 ]
 __version__ = "0.1.0"

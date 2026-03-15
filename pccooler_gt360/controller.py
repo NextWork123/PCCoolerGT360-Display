@@ -2,6 +2,10 @@
 Display controller class for PCCooler GT360.
 """
 
+from __future__ import annotations
+
+from typing import Optional, Callable
+
 from . import protocol
 from . import device
 from . import power
@@ -14,17 +18,17 @@ from .image_processor import ImageProcessor, PIL_AVAILABLE
 class DisplayController:
     """Main controller class for PCCooler GT360 display"""
     
-    def __init__(self, verbose=False):
-        self.verbose = verbose
-        self.device = None
-        self.seq_number = 0
+    def __init__(self, verbose: bool = False) -> None:
+        self.verbose: bool = verbose
+        self.device: Optional[device.DeviceWrapper] = None
+        self.seq_number: int = 0
         
         if not USB_AVAILABLE:
             raise RuntimeError("pyserial is required. Install with: pip install pyserial")
         if not PIL_AVAILABLE:
             raise RuntimeError("Pillow is required. Install with: pip install Pillow")
     
-    def _log(self, message, level="INFO"):
+    def _log(self, message: str, level: str = "INFO") -> None:
         """Log message if verbose mode is enabled"""
         protocol.log_message(message, level, self.verbose)
     
@@ -81,38 +85,43 @@ class DisplayController:
         """Reset USB device via pyusb"""
         return device.reset_usb_device(verbose=self.verbose)
     
-    def open_device(self, max_retries=10):
+    def open_device(self, max_retries: int = 10) -> Optional[device.DeviceWrapper]:
         """Open and initialize USB device"""
         self.device = device.open_device(max_retries=max_retries, verbose=self.verbose)
         self.seq_number = 0
         return self.device
     
-    def close(self):
+    def close(self) -> None:
         """Close device and cleanup"""
         if self.device:
             device.close_device(self.device, verbose=self.verbose)
             self.device = None
     
-    def __enter__(self):
+    def __enter__(self) -> DisplayController:
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], 
+                 exc_tb: Optional[object]) -> bool:
         self.close()
         return False
     
     def send_image(self, image_data: bytes, filename: str = "image.bmp",
                    chunk_delay: float = 0.001, fast_mode: bool = False,
-                   chunk_size: int = 0, compress: bool = False) -> bool:
+                   chunk_size: int = 0, compress: bool = False,
+                   compress_level: int = 6, adaptive: bool = True) -> bool:
         """Send raw image data to display.
 
         chunk_size: bytes per USB write (0 = device blockMaxSize).  Use a
           smaller value (e.g. 256) instead of chunk_delay > 0 to pace the MCU.
         fast_mode: skip EP_IN flush on success, tighter timeouts, no retries (screensavers).
         compress: zlib-compress payload before sending (smaller USB; device must support it).
+        compress_level: zlib compression level (1-9, default 6).
+        adaptive: dynamically adjust chunk size based on transfer success rate.
         """
         return transfer.send_image(
             self.device, image_data, self._get_next_seq,
             verbose=self.verbose, filename=filename,
             chunk_delay=chunk_delay, fast_mode=fast_mode,
             chunk_size=chunk_size, compress=compress,
+            compress_level=compress_level, adaptive=adaptive,
         )

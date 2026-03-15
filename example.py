@@ -31,6 +31,7 @@ def main(**kwargs):
     screensaver = kwargs.pop("screensaver", None)
     screensaver_quality = int(kwargs.pop("screensaver_quality", 60))
     screensaver_scale = float(kwargs.pop("screensaver_scale", 1.0))
+    screensaver_fps = float(kwargs.pop("screensaver_fps", 30))
 
     width, height = DISPLAY_MODES[resolution]
 
@@ -86,28 +87,67 @@ def main(**kwargs):
                 from PIL import Image as _PIL
             print(f"🖥️ Screensaver: {screensaver} (Ctrl+C or Stop to quit)")
             gen = ScreensaverGenerator(screensaver, width, height)
-            buf = _io.BytesIO()
+            # Reusable frame buffer to reduce GC pressure
+            _frame_buffer = _io.BytesIO()
+            # Pre-calculate scaled dimensions to avoid redundant calculations
+            _scaled_width = None
+            _scaled_height = None
+            if screensaver_scale < 1.0 and screensaver_scale > 0:
+                _scaled_width = int(width * screensaver_scale)
+                _scaled_height = int(height * screensaver_scale)
             count = 0
+            fail_count = 0
+            max_failures = 5  # Stop after 5 consecutive failures
             t_start = time.monotonic()
+            # FPS capping: calculate minimum time per frame (min 10 FPS)
+            _target_fps = max(10, min(60, screensaver_fps))
+            _frame_min_time = 1.0 / _target_fps
+            _last_frame_time = t_start
             while not (stop_event and stop_event.is_set()):
-                img = gen.next_frame()
-                if screensaver_scale < 1.0 and screensaver_scale > 0:
-                    w, h = img.size
-                    img = img.resize((int(w * screensaver_scale), int(h * screensaver_scale)), Image.Resampling.LANCZOS)
-                buf.seek(0)
-                buf.truncate()
-                img.convert("RGB").save(buf, format="JPEG", quality=screensaver_quality, optimize=False)
-                image_data = buf.getvalue()
-                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
-                ctrl.send_image(image_data, f"{ts}.jpg", chunk_delay=0,
-                                fast_mode=True)
-                count += 1
-                if count % 30 == 0:
-                    elapsed = time.monotonic() - t_start
-                    fps = count / elapsed if elapsed > 0 else 0
-                    print(f"\r🔄 Frame #{count} | {fps:.1f} fps | {len(image_data)}B", end="", flush=True)
+                _frame_start = time.monotonic()
+                try:
+                    img = gen.next_frame()
+                    if _scaled_width is not None:
+                        img = img.resize((_scaled_width, _scaled_height), Image.Resampling.LANCZOS)
+                    _frame_buffer.seek(0)
+                    _frame_buffer.truncate()
+                    img.convert("RGB").save(_frame_buffer, format="JPEG", quality=screensaver_quality, optimize=False)
+                    image_data = _frame_buffer.getvalue()
+                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
+                    success = ctrl.send_image(image_data, f"{ts}.jpg", chunk_delay=0,
+                                    fast_mode=True)
+                    if success:
+                        fail_count = 0  # Reset on success
+                        count += 1
+                        if count % 30 == 0:
+                            elapsed = time.monotonic() - t_start
+                            fps = count / elapsed if elapsed > 0 else 0
+                            print(f"\r🔄 Frame #{count} | {fps:.1f} fps | {len(image_data)}B", end="", flush=True)
+                    else:
+                        fail_count += 1
+                        if verbose:
+                            print(f"\n⚠️ Frame send failed ({fail_count}/{max_failures})")
+                        if fail_count >= max_failures:
+                            print(f"\n❌ Too many consecutive failures, stopping screensaver")
+                            break
+                except Exception as e:
+                    fail_count += 1
+                    if verbose:
+                        print(f"\n⚠️ Frame error: {e} ({fail_count}/{max_failures})")
+                    if fail_count >= max_failures:
+                        print(f"\n❌ Too many consecutive errors, stopping screensaver")
+                        break
                 if stop_event and stop_event.wait(0.0):
                     break
+                # FPS capping: sleep if frame completed faster than target
+                if _frame_min_time > 0:
+                    _frame_elapsed = time.monotonic() - _frame_start
+                    _sleep_time = _frame_min_time - _frame_elapsed
+                    if _sleep_time > 0:
+                        time.sleep(_sleep_time)
+            # Explicit cleanup of frame buffer
+            _frame_buffer.close()
+            del _frame_buffer
             print()
             return
 
@@ -282,6 +322,9 @@ def parse_args():
     p.add_argument("--loop", "-l", action="store_true", help="Continuously upload (~1s interval)")
     p.add_argument("--delay", "-d", type=float, default=0.001, dest="chunk_delay", help="Chunk delay (s)")
     p.add_argument("--max-retries", type=int, default=10, dest="max_retries", help="Open device retries")
+    p.add_argument("--fps", type=float, default=30, dest="screensaver_fps",
+                   metavar="10-60",
+                   help="Screensaver max FPS (10-60, default: 30)")
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     return p.parse_args()
 
@@ -307,5 +350,6 @@ if __name__ == "__main__":
         "orientation": args.orientation,
         "format": args.format,
         "loop": args.loop,
+        "screensaver_fps": args.screensaver_fps,
     }
     main(**kwargs)

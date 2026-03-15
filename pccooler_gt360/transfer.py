@@ -4,6 +4,7 @@ Image transfer logic for PCCooler GT360 display.
 
 import zlib
 import time
+from collections import deque
 from .protocol import log_message, send_command
 
 # Cached after the first META ACK — the device always returns the same value.
@@ -14,10 +15,50 @@ _cached_block_size: int = 0
 # partial ACK left behind.
 _prev_ok: bool = True
 
+# Adaptive chunk sizing state
+_transfer_history: deque = deque(maxlen=10)  # Track last 10 transfers (True=success, False=failure)
+_current_chunk_size: int = 0  # 0 = use device default
+_adaptive_enabled: bool = True
+
+
+def _get_adaptive_chunk_size(device_block: int, verbose: bool = False) -> int:
+    """Calculate optimal chunk size based on recent transfer history.
+    
+    If recent transfers have been failing, reduce chunk size.
+    If all recent transfers succeeded, try increasing slightly.
+    """
+    global _current_chunk_size, _transfer_history, _adaptive_enabled
+    
+    if not _adaptive_enabled or len(_transfer_history) < 3:
+        return _current_chunk_size if _current_chunk_size > 0 else device_block
+    
+    success_rate = sum(_transfer_history) / len(_transfer_history)
+    current = _current_chunk_size if _current_chunk_size > 0 else device_block
+    
+    if success_rate < 0.7 and current > 256:
+        # Too many failures, reduce chunk size
+        new_size = max(256, current // 2)
+        if verbose and new_size != current:
+            log_message(f"Adaptive: reducing chunk size {current} -> {new_size} (success rate: {success_rate:.1%})", 
+                       "DEBUG", verbose)
+        _current_chunk_size = new_size
+        return new_size
+    elif success_rate == 1.0 and current < device_block:
+        # All succeeded, try increasing slowly
+        new_size = min(device_block, int(current * 1.25))
+        if verbose and new_size != current:
+            log_message(f"Adaptive: increasing chunk size {current} -> {new_size} (success rate: 100%)", 
+                       "DEBUG", verbose)
+        _current_chunk_size = new_size
+        return new_size
+    
+    return current
+
 
 def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
                filename: str = "image.bmp", chunk_delay: float = 0.001,
-               fast_mode: bool = False, chunk_size: int = 0, compress: bool = False) -> bool:
+               fast_mode: bool = False, chunk_size: int = 0, compress: bool = False,
+               compress_level: int = 6, adaptive: bool = True) -> bool:
     """Send raw image data to display.
 
     chunk_size: bytes per USB write call.  0 = use the device's blockMaxSize.
@@ -31,16 +72,22 @@ def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
 
     compress=True: zlib-compress payload before sending (smaller USB transfer).
       Requires the display to support zlib-decompressed media; otherwise leave False.
+      
+    adaptive=True: Dynamically adjust chunk size based on transfer success rate.
+      Helps find optimal throughput without manual tuning.
     """
-    global _cached_block_size, _prev_ok
+    global _cached_block_size, _prev_ok, _current_chunk_size, _adaptive_enabled, _transfer_history
 
     if not device:
         raise RuntimeError("Device not opened.")
 
     if compress:
-        image_data = zlib.compress(image_data, level=6)
+        image_data = zlib.compress(image_data, level=compress_level)
         if verbose:
-            log_message("Payload zlib-compressed for USB", "INFO", verbose)
+            original_size = len(image_data) * 100  # Approximate pre-compression
+            compressed_size = len(image_data)
+            ratio = original_size / compressed_size if compressed_size > 0 else 0
+            log_message(f"Payload zlib-compressed (level={compress_level}): ~{ratio:.1f}% original size", "INFO", verbose)
 
     # Flush stale ACKs from a previous failed transfer.
     # After a *successful* transfer EP_IN is already clean (COMMIT ACK was read
@@ -95,9 +142,18 @@ def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
 
     device_block = ack.get("blockMaxSize") or _cached_block_size or 1024
     _cached_block_size = device_block
-    # Use caller-supplied chunk_size if given; must not exceed device limit
-    block_size = min(chunk_size, device_block) if chunk_size > 0 else device_block
-    log_message(f"META OK (blockMaxSize={device_block}, using chunk={block_size})", "INFO", verbose)
+    
+    # Determine chunk size: caller-supplied > adaptive > device default
+    _adaptive_enabled = adaptive and chunk_size == 0
+    if chunk_size > 0:
+        block_size = min(chunk_size, device_block)
+        _current_chunk_size = block_size
+    elif adaptive:
+        block_size = _get_adaptive_chunk_size(device_block, verbose)
+    else:
+        block_size = device_block
+        
+    log_message(f"META OK (blockMaxSize={device_block}, using chunk={block_size}, adaptive={adaptive})", "INFO", verbose)
 
     # ------------------------------------------------------------------
     # Phase 2: DATA
@@ -160,8 +216,10 @@ def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
     if ack.get("state") != "success":
         log_message(f"COMMIT failed: {ack}", "ERROR", verbose)
         _prev_ok = False
+        _transfer_history.append(False)
         return False
 
     log_message("Transfer complete!", "SUCCESS", verbose)
     _prev_ok = True
+    _transfer_history.append(True)
     return True

@@ -236,7 +236,9 @@ HTML = '''<!DOCTYPE html>
     
     /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
     ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
     
     .app-container { max-width: 680px; margin: 0 auto; }
     
@@ -801,7 +803,7 @@ HTML = '''<!DOCTYPE html>
             <span class="slider-val" id="screensaver-quality-val">60</span>
           </div>
         </div>
-        <div class="setting-row" style="border-bottom: none;">
+        <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Scale</div>
             <div class="setting-desc">Frame size multiplier</div>
@@ -811,10 +813,20 @@ HTML = '''<!DOCTYPE html>
             <span class="slider-val" id="screensaver-scale-val">1</span>
           </div>
         </div>
+        <div class="setting-row" style="border-bottom: none;">
+          <div class="setting-info">
+            <div class="setting-label">Max FPS</div>
+            <div class="setting-desc">Limit frame rate (10-60)</div>
+          </div>
+          <div class="slider-wrap">
+            <input type="range" class="slider" id="screensaver-fps" min="10" max="60" step="5" value="30">
+            <span class="slider-val" id="screensaver-fps-val">30</span>
+          </div>
+        </div>
       </div>
     </div>
     
-    <!-- Display Settings -->
+    <!-- Display Settings (Transfer Options) -->
     <div class="section">
       <div class="section-title">📺 Display Settings</div>
       
@@ -879,9 +891,9 @@ HTML = '''<!DOCTYPE html>
       </div>
     </div>
     
-    <!-- Display Settings -->
+    <!-- Hardware Settings (Device Control) -->
     <div class="section">
-      <div class="section-title">🎚️ Display Settings</div>
+      <div class="section-title">🎚️ Hardware Settings</div>
       
       <!-- Brightness Control -->
       <div class="setting-row">
@@ -1059,6 +1071,7 @@ HTML = '''<!DOCTYPE html>
     // Slider Updates
     var ssQuality = document.getElementById('screensaver-quality');
     var ssScale = document.getElementById('screensaver-scale');
+    var ssFps = document.getElementById('screensaver-fps');
     var chunkDelaySlider = document.getElementById('chunk-delay');
     var brightnessSlider = document.getElementById('brightness');
     
@@ -1072,6 +1085,13 @@ HTML = '''<!DOCTYPE html>
     if (ssScale) {
       ssScale.addEventListener('input', function() {
         var val = document.getElementById('screensaver-scale-val');
+        if (val) val.textContent = this.value;
+      });
+    }
+    
+    if (ssFps) {
+      ssFps.addEventListener('input', function() {
+        var val = document.getElementById('screensaver-fps-val');
         if (val) val.textContent = this.value;
       });
     }
@@ -1281,6 +1301,7 @@ HTML = '''<!DOCTYPE html>
         screensaver: currentSource === 'screensaver' ? (document.getElementById('screensaver-type') ? document.getElementById('screensaver-type').value : 'bounce') : null,
         screensaver_quality: currentSource === 'screensaver' ? (ssQuality ? parseInt(ssQuality.value) : 60) : 60,
         screensaver_scale: currentSource === 'screensaver' ? (ssScale ? parseFloat(ssScale.value) : 1) : 1,
+        screensaver_fps: currentSource === 'screensaver' ? (ssFps ? parseFloat(ssFps.value) : 30) : 30,
         resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : '640x480',
         format: document.getElementById('format') ? document.getElementById('format').value : 'png',
         loop: document.getElementById('loop') ? document.getElementById('loop').checked : false,
