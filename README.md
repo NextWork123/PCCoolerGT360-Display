@@ -1,4 +1,4 @@
-# pccooler-gt360
+# PCCoolerGT360-Display
 
 USB display controller for PCCooler GT360 AIO liquid cooler (3.5" IPS LCD). Send images, test patterns, system info, and control wake/sleep/recovery via USB CDC ACM serial.
 
@@ -105,3 +105,6 @@ from serial.tools.list_ports import comports
 for p in comports():
     print(f"{p.device}: {p.description} [{p.hwid}]")
 ```
+
+## Credits
+- [Shiberal](https://github.com/Shiberal) — For help with the library and UI.
