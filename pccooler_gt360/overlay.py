@@ -4,7 +4,9 @@ Provides dynamic CPU/GPU statistics overlay on base images.
 """
 
 import sys
-from typing import Optional, Tuple, Dict, Any
+import time
+import io
+from typing import Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
@@ -105,42 +107,15 @@ class OverlayRenderer:
     
     def _init_fonts(self) -> None:
         """Initialize fonts for rendering"""
-        self.font = None
-        self.font_bold = None
+        from .utils import load_system_fonts
         
-        font_paths = []
         font_size = self.config.font_size
+        fonts = load_system_fonts([font_size, font_size])
         
-        # Platform-specific font paths
-        if sys.platform == "darwin":
-            font_paths = [
-                "/System/Library/Fonts/Helvetica.ttc",
-                "/System/Library/Fonts/HelveticaNeue.ttc",
-                "/Library/Fonts/Arial.ttf",
-            ]
-        else:
-            # Linux
-            font_paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-            ]
+        self.font = fonts[0]
+        self.font_bold = fonts[1] if len(fonts) > 1 else fonts[0]
         
-        # Try to load fonts
-        for path in font_paths:
-            try:
-                if self.font is None:
-                    self.font = ImageFont.truetype(path, font_size)
-                if self.font_bold is None and "Bold" in path:
-                    self.font_bold = ImageFont.truetype(path, font_size)
-            except Exception:
-                continue
-        
-        # Fallback to default font
-        if self.font is None:
-            self.font = ImageFont.load_default()
-            self.font_bold = self.font
+        # If we only got one font, use it for both
         if self.font_bold is None:
             self.font_bold = self.font
     
@@ -380,7 +355,7 @@ class OverlayRenderer:
         """
         img = self.render(cpu_stats, gpu_stats)
         
-        import io
+
         buf = io.BytesIO()
         
         if format.upper() == "JPEG":

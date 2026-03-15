@@ -12468,21 +12468,10 @@ class ImageProcessor:
         img = Image.new('RGBA', (width, height), (20, 20, 40, 255))
         draw = ImageDraw.Draw(img)
         
-        # Try to load a font (Linux or macOS)
-        font_large = font_medium = font_small = None
-        try:
-            if sys.platform == 'darwin':
-                # macOS font paths
-                font_large = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 32)
-                font_medium = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
-            else:
-                # Linux font paths
-                font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-                font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        except Exception:
-            font_large = font_medium = font_small = ImageFont.load_default()
+        # Load system fonts
+        from .utils import load_system_fonts
+        fonts = load_system_fonts([32, 20, 16])
+        font_large, font_medium, font_small = fonts[0], fonts[1], fonts[2]
         
         # Header
         draw.text((20, 20), "PCCooler GT360", fill=(100, 150, 255), font=font_large)

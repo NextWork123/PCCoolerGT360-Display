@@ -7,7 +7,7 @@ import sys
 import time
 import subprocess
 import re
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -205,7 +205,7 @@ class SystemStatsCollector:
                 # Count processor entries
                 matches = re.findall(r'^processor\s*:', content, re.MULTILINE)
                 return len(matches) if matches else 0
-        except:
+        except Exception:
             return 0
     
     def get_cpu_stats(self) -> CPUStats:
@@ -272,7 +272,9 @@ class SystemStatsCollector:
             
             return None
             
-        except Exception:
+        except Exception as e:
+            if self.verbose:
+                print(f"CPU temperature read failed: {e}")
             return None
     
     def _get_nvidia_gpu_stats(self) -> GPUStats:
@@ -289,8 +291,9 @@ class SystemStatsCollector:
             temp = None
             try:
                 temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.verbose:
+                    print(f"GPU temperature read failed: {e}")
             
             # Get memory info
             mem_used = None
@@ -299,15 +302,17 @@ class SystemStatsCollector:
                 mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
                 mem_used = mem_info.used // (1024 * 1024)
                 mem_total = mem_info.total // (1024 * 1024)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.verbose:
+                    print(f"GPU memory read failed: {e}")
             
             # Get GPU name
             name = "GPU"
             try:
                 name = pynvml.nvmlDeviceGetName(handle)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.verbose:
+                    print(f"GPU name read failed: {e}")
             
             return GPUStats(
                 usage_percent=usage,

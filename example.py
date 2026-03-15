@@ -4,7 +4,6 @@
 import sys
 import time
 import argparse
-from datetime import datetime
 
 from pccooler_gt360 import DisplayController, ImageProcessor, ScreensaverGenerator, DISPLAY_MODES
 
@@ -81,12 +80,12 @@ def main(**kwargs):
                 img = gen.next_frame()
                 if screensaver_scale < 1.0 and screensaver_scale > 0:
                     w, h = img.size
-                    img = img.resize((int(w * screensaver_scale), int(h * screensaver_scale)), Image.Resampling.LANCZOS)
+                    img = img.resize((int(w * screensaver_scale), int(h * screensaver_scale)), _PIL.Resampling.LANCZOS)
                 buf.seek(0)
                 buf.truncate()
                 img.convert("RGB").save(buf, format="JPEG", quality=screensaver_quality, optimize=False)
                 image_data = buf.getvalue()
-                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
+                ts = generate_timestamp()
                 ctrl.send_image(image_data, f"{ts}.jpg", chunk_delay=0,
                                 fast_mode=True)
                 count += 1
@@ -108,7 +107,7 @@ def main(**kwargs):
                     data = f.read()
                 
                 def send_mp4():
-                    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
+                    ts = generate_timestamp()
                     filename = f"{ts}.mp4"
                     print(f"📁 Sending MP4: {len(data)} bytes ({filename})")
                     return ctrl.send_image(data, filename, chunk_delay=chunk_delay)
@@ -170,7 +169,7 @@ def main(**kwargs):
                 ext = "png"
 
             def send_media():
-                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
+                ts = generate_timestamp()
                 filename = f"{ts}.{ext}"
                 return ctrl.send_image(image_data, filename, chunk_delay=chunk_delay)
 
@@ -217,34 +216,65 @@ def main(**kwargs):
 
 
 def parse_args():
+    """Parse command line arguments for the PCCooler GT360 CLI."""
     p = argparse.ArgumentParser(
-        description="Example: PCCooler GT360 display (full feature pass-through).",
+        description="PCCooler GT360 Image Display Controller",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Send an image file
+  %(prog)s --image /path/to/image.png
+
+  # Send blue test pattern
+  %(prog)s --pattern blue
+
+  # Show system info
+  %(prog)s --system
+
+  # Wakeup the display
+  %(prog)s --wakeup
+
+  # Initialize display (conn + timeout + recovery + wakeup)
+  %(prog)s --init
+
+  # Set display timeout to 60 seconds
+  %(prog)s --timeout 60
+
+  # Send image and wakeup
+  %(prog)s --pattern blue --wakeup
+
+  # Debug mode with verbose output
+  %(prog)s --pattern blue --verbose
+        """
     )
-    # Input
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--image", "-i", type=str, help="Image file to display")
-    g.add_argument(
+    
+    # Input options (mutually exclusive)
+    input_group = p.add_mutually_exclusive_group()
+    input_group.add_argument("--image", "-i", type=str, help="Image file to display")
+    input_group.add_argument(
         "--pattern", "-p",
         default="blue",
         choices=["blue", "red", "green", "white", "black", "gradient", "grid", "colors"],
         help="Test pattern (default: blue)",
     )
-    g.add_argument("--system", "-s", action="store_true", help="Show system information")
-    # Control
+    input_group.add_argument("--system", "-s", action="store_true", help="Show system information")
+    
+    # Control commands
     p.add_argument("--wakeup", "-w", action="store_true", help="Wakeup display")
     p.add_argument("--sleep", action="store_true", help="Put display to sleep")
     p.add_argument("--recovery", action="store_true", help="Enable recovery mode")
-    p.add_argument("--timeout", type=int, metavar="SEC", help="Display timeout in seconds")
+    p.add_argument("--timeout", type=int, metavar="SEC", help="Display timeout in seconds (0=disable)")
     p.add_argument("--init", action="store_true", help="Init sequence (conn + timeout + recovery + wakeup)")
     p.add_argument("--reset", action="store_true", help="Reset USB device before open")
-    # Display
+    
+    # Display options
     p.add_argument("--resolution", "-r", default="640x480", choices=["640x480", "480x320"], help="Resolution")
     p.add_argument("--format", "-f", default="png", choices=["jpeg", "png", "bmp", "gif", "mp4"], help="Encode format")
     p.add_argument("--loop", "-l", action="store_true", help="Continuously upload (~1s interval)")
     p.add_argument("--delay", "-d", type=float, default=0.001, dest="chunk_delay", help="Chunk delay (s)")
     p.add_argument("--max-retries", type=int, default=10, dest="max_retries", help="Open device retries")
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    
     return p.parse_args()
 
 

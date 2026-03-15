@@ -51,8 +51,8 @@ def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
             try:
                 log_message("Fast mode: flushing stale ACK", "DEBUG", verbose)
                 device.read(4096, timeout=10)
-            except Exception:
-                pass
+            except Exception as e:
+                log_message(f"Fast mode flush failed: {e}", "DEBUG", verbose)
         # else: buffer is already empty, no flush needed
     else:
         try:
@@ -64,8 +64,8 @@ def send_image(device, image_data: bytes, get_next_seq, verbose: bool = False,
                 flush_count += len(data)
             if flush_count > 0:
                 log_message(f"Flushed {flush_count} bytes from input buffer", "DEBUG", verbose)
-        except Exception:
-            pass
+        except Exception as e:
+            log_message(f"Buffer flush failed: {e}", "DEBUG", verbose)
 
     size = len(image_data)
     log_message(f"Sending {size} bytes as '{filename}'", "INFO", verbose)

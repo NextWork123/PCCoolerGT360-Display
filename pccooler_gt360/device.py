@@ -6,7 +6,11 @@ import time
 import sys
 import subprocess
 
-from .constants import VENDOR_ID, PRODUCT_ID
+from .constants import (
+    VENDOR_ID, PRODUCT_ID,
+    SERIAL_BAUDRATE, DEFAULT_READ_TIMEOUT_MS, DEFAULT_WRITE_TIMEOUT_MS,
+    RESET_DELAY, OPEN_DELAY
+)
 from .protocol import log_message, send_command
 
 try:
@@ -77,12 +81,12 @@ def reset_usb_device(verbose=False):
             port = port_info.device
             log_message(f"Resetting device {port} (close/reopen)...", "INFO", verbose)
             try:
-                ser = serial.Serial(port, baudrate=115200)
+                ser = serial.Serial(port, baudrate=SERIAL_BAUDRATE)
                 ser.close()
-                time.sleep(0.5)
-            except Exception:
-                pass
-            time.sleep(2)
+                time.sleep(RESET_DELAY)
+            except Exception as e:
+                log_message(f"Serial close during reset failed: {e}", "DEBUG", verbose)
+            time.sleep(RESET_DELAY)
             log_message("Device reset complete", "INFO", verbose)
             return True
         log_message("Device not found for reset", "WARN", verbose)
@@ -101,7 +105,7 @@ def open_device(max_retries=10, verbose=False):
         if port_info is not None:
             break
         log_message(f"Waiting for device... ({attempt+1}/{max_retries})", "WARN", verbose)
-        time.sleep(0.5)
+        time.sleep(OPEN_DELAY)
     else:
         raise RuntimeError(f"Device not found (VID={VENDOR_ID:04x}, PID={PRODUCT_ID:04x})")
 
@@ -110,28 +114,28 @@ def open_device(max_retries=10, verbose=False):
 
     ser = serial.Serial(
         port=port,
-        baudrate=115200,
+        baudrate=SERIAL_BAUDRATE,
         bytesize=serial.EIGHTBITS,
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
-        timeout=0.2,
-        write_timeout=5.0,
+        timeout=DEFAULT_READ_TIMEOUT_MS / 1000.0,
+        write_timeout=DEFAULT_WRITE_TIMEOUT_MS / 1000.0,
     )
-    log_message("Serial opened: baudrate=115200 timeout=0.2", "DEBUG", verbose)
+    log_message(f"Serial opened: baudrate={SERIAL_BAUDRATE} timeout={DEFAULT_READ_TIMEOUT_MS}ms", "DEBUG", verbose)
 
     # Some devices reset on DTR assertion. For GT360, we should keep them False.
     try:
         ser.dtr = False
         ser.rts = False
         log_message("DTR/RTS set to False to prevent MCU reset", "DEBUG", verbose)
-        time.sleep(0.2)
+        time.sleep(OPEN_DELAY / 5)
     except Exception as e:
         log_message(f"Failed to set DTR/RTS: {e}", "WARN", verbose)
 
     # Flush input buffer
     ser.reset_input_buffer()
     log_message("Input buffer flushed", "DEBUG", verbose)
-    time.sleep(0.1)
+    time.sleep(OPEN_DELAY / 10)
 
     wrapper = SerialDevice(ser)
     return wrapper
@@ -142,8 +146,8 @@ def close_device(device, verbose=False):
     if device and hasattr(device, "_ser"):
         try:
             device._ser.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log_message(f"Device close failed: {e}", "DEBUG", verbose)
         if sys.platform == "linux":
             subprocess.run(["modprobe", "cdc_acm"], capture_output=True)
         log_message("Device closed", "INFO", verbose)

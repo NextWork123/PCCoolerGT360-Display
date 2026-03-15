@@ -1,3 +1,2 @@
 pyserial>=3.5
 Pillow>=9.0.0
-pywebview>=4.0.0

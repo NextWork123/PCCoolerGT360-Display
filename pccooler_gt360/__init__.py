@@ -16,6 +16,8 @@ Usage as a library:
 
 from .controller import DisplayController
 from .image_processor import ImageProcessor, ScreensaverGenerator, BUILTIN_IMAGE_B64, PIL_AVAILABLE
+from .overlay import OverlayRenderer, OverlayConfig, OverlayPosition
+from .stats_collector import SystemStatsCollector, CPUStats, GPUStats
 from .constants import (
     VENDOR_ID,
     PRODUCT_ID,
@@ -32,6 +34,12 @@ __all__ = [
     "ScreensaverGenerator",
     "BUILTIN_IMAGE_B64",
     "PIL_AVAILABLE",
+    "OverlayRenderer",
+    "OverlayConfig",
+    "OverlayPosition",
+    "SystemStatsCollector",
+    "CPUStats",
+    "GPUStats",
     "VENDOR_ID",
     "PRODUCT_ID",
     "DISPLAY_WIDTH",
