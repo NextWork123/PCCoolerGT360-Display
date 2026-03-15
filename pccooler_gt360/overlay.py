@@ -92,7 +92,6 @@ class OverlayRenderer:
     
     def _preheat_stats(self) -> None:
         """Initialize stats collector and get baseline reading"""
-        import time
         try:
             self._stats_collector = SystemStatsCollector(verbose=self.verbose)
             # First call to cpu_percent returns 0 (needs baseline), second call gives real value
