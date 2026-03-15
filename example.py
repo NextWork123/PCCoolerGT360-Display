@@ -4,8 +4,12 @@
 import sys
 import time
 import argparse
+import io
+
+from PIL import Image
 
 from pccooler_gt360 import DisplayController, ImageProcessor, ScreensaverGenerator, DISPLAY_MODES
+from pccooler_gt360.utils import generate_timestamp
 
 
 def main(**kwargs):
@@ -68,19 +72,16 @@ def main(**kwargs):
 
         # Screensaver: generate animated frames and upload in a tight loop
         if screensaver:
-            import io as _io
-            if screensaver_scale < 1.0 and screensaver_scale > 0:
-                from PIL import Image as _PIL
             print(f"🖥️ Screensaver: {screensaver} (Ctrl+C or Stop to quit)")
             gen = ScreensaverGenerator(screensaver, width, height)
-            buf = _io.BytesIO()
+            buf = io.BytesIO()
             count = 0
             t_start = time.monotonic()
             while not (stop_event and stop_event.is_set()):
                 img = gen.next_frame()
                 if screensaver_scale < 1.0 and screensaver_scale > 0:
                     w, h = img.size
-                    img = img.resize((int(w * screensaver_scale), int(h * screensaver_scale)), _PIL.Resampling.LANCZOS)
+                    img = img.resize((int(w * screensaver_scale), int(h * screensaver_scale)), Image.Resampling.LANCZOS)
                 buf.seek(0)
                 buf.truncate()
                 img.convert("RGB").save(buf, format="JPEG", quality=screensaver_quality, optimize=False)
@@ -130,7 +131,6 @@ def main(**kwargs):
                 return
 
             # Build image
-            from PIL import Image
             if image:
                 print(f"📁 Loading: {image}")
                 img = ImageProcessor.load_image(image, width, height)
