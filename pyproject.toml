@@ -1,29 +1,18 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pccooler-gt360"
 version = "0.1.0"
-description = "USB display controller for PCCooler GT360 AIO liquid cooler"
+description = "USB display controller for PCCooler GT360 AIO liquid cooler (3.5\" IPS LCD)"
 readme = "README.md"
 license = {text = "GPL-3.0"}
-requires-python = ">=3.8"
 authors = [
-    {name = "NextWork123"},
-]
-keywords = [
-    "pccooler",
-    "gt360",
-    "display",
-    "usb",
-    "lcd",
-    "aio",
-    "cooler",
+    {name = "PCCooler GT360 Contributors"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
@@ -34,77 +23,28 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: System :: Hardware",
-    "Topic :: Utilities",
+    "Topic :: Multimedia :: Graphics :: Display",
 ]
-
+keywords = ["pccooler", "gt360", "aio", "lcd", "display", "usb"]
+requires-python = ">=3.8"
 dependencies = [
     "pyserial>=3.5",
     "Pillow>=9.0.0",
 ]
 
 [project.optional-dependencies]
-gui = [
-    "pywebview>=4.0.0",
-]
-stats = [
-    "psutil>=5.8.0",
-    "nvidia-ml-py>=11.0.0; sys_platform != 'darwin'",
-]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=22.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-]
+gui = ["pywebview>=4.0"]
 
 [project.scripts]
 pccooler-gt360 = "pccooler_gt360.cli:main"
-pccooler-gt360-gui = "ui:main"
 
 [project.urls]
 Homepage = "https://github.com/NextWork123/PCCoolerGT360-Display"
 Repository = "https://github.com/NextWork123/PCCoolerGT360-Display"
-Issues = "https://github.com/NextWork123/PCCoolerGT360-Display/issues"
 
-[tool.hatch.build.targets.wheel]
-packages = ["pccooler_gt360"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pccooler_gt360*"]
 
-[tool.ruff]
-target-version = "py38"
-line-length = 120
-select = [
-    "E",  # pycodestyle errors
-    "F",  # Pyflakes
-    "I",  # isort
-    "N",  # pep8-naming
-    "W",  # pycodestyle warnings
-]
-ignore = [
-    "E501",  # line too long (handled by formatter)
-]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-
-[tool.black]
-line-length = 120
-target-version = ["py38", "py39", "py310", "py311", "py312"]
-
-[tool.mypy]
-python_version = "3.8"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-minversion = "7.0"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v --tb=short"
+[tool.setuptools.package-data]
+pccooler_gt360 = ["*.py"]
