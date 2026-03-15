@@ -16,13 +16,15 @@ def main(**kwargs):
     resolution = kwargs.pop("resolution", "640x480")
     chunk_delay = kwargs.pop("chunk_delay", 0.001)
     image = kwargs.pop("image", None)
-    pattern = kwargs.pop("pattern", "blue")
+    pattern = kwargs.pop("pattern", None)
     system = kwargs.pop("system", False)
     wakeup = kwargs.pop("wakeup", False)
     sleep = kwargs.pop("sleep", False)
     recovery = kwargs.pop("recovery", False)
     timeout = kwargs.pop("timeout", None)
     init = kwargs.pop("init", False)
+    brightness = kwargs.pop("brightness", None)
+    orientation = kwargs.pop("orientation", None)
     fmt = kwargs.pop("format", "png")
     loop = kwargs.pop("loop", False)
     stop_event = kwargs.pop("stop_event", None)
@@ -67,6 +69,16 @@ def main(**kwargs):
             time.sleep(0.5)
             print("✅ Initialization complete")
 
+        if brightness is not None:
+            ok = ctrl.set_brightness(brightness)
+            print(f"✅ Brightness set to {brightness}%" if ok else "❌ Brightness failed")
+            time.sleep(0.3)
+
+        if orientation is not None:
+            ok = ctrl.set_orientation(orientation)
+            print(f"✅ Orientation set to {orientation}°" if ok else "❌ Orientation failed")
+            time.sleep(0.3)
+
         # Screensaver: generate animated frames and upload in a tight loop
         if screensaver:
             import io as _io
@@ -100,7 +112,16 @@ def main(**kwargs):
             return
 
         # Image / pattern / system
-        has_media = image is not None or pattern is not None or system
+        # Pattern is only active if explicitly provided AND we're not sending image/system
+        should_send_pattern = pattern is not None and not image and not system
+        has_media = image is not None or system or should_send_pattern
+        
+        # Debug output
+        if verbose:
+            print(f"DEBUG: pattern={pattern}, image={image}, system={system}")
+            print(f"DEBUG: should_send_pattern={should_send_pattern}, has_media={has_media}")
+            print(f"DEBUG: brightness={brightness}, orientation={orientation}")
+        
         if has_media:
             # MP4: send raw
             if image and image.lower().endswith(".mp4"):
@@ -138,7 +159,7 @@ def main(**kwargs):
             elif system:
                 print("🖥️ System info")
                 img = ImageProcessor.create_system_info(width, height)
-            else:
+            elif should_send_pattern:
                 print(f"🎨 Pattern: {pattern}")
                 img = ImageProcessor.create_test_pattern(pattern, width, height)
 
@@ -206,9 +227,22 @@ def main(**kwargs):
                     sys.exit(1)
         else:
             # No image/pattern/system: just wake and send default pattern if no other control
-            if not any((wakeup, sleep, recovery, timeout is not None, init)):
+            has_control_command = any((
+                wakeup, sleep, recovery, timeout is not None, init,
+                brightness is not None, orientation is not None
+            ))
+            
+            # Debug output
+            if verbose:
+                print(f"DEBUG (else): has_control_command={has_control_command}")
+                print(f"DEBUG (else): wakeup={wakeup}, sleep={sleep}, recovery={recovery}")
+                print(f"DEBUG (else): timeout={timeout}, init={init}")
+                print(f"DEBUG (else): brightness={brightness}, orientation={orientation}")
+            
+            if not has_control_command:
+                # No media, no control commands: send default blue pattern
                 ctrl.wakeup()
-                img = ImageProcessor.create_test_pattern(pattern, width, height)
+                img = ImageProcessor.create_test_pattern("blue", width, height)
                 png_data = ImageProcessor.create_png(img)
                 ctrl.send_image(png_data, "example.png", chunk_delay=chunk_delay)
                 print("Done (default pattern sent).")
@@ -226,9 +260,8 @@ def parse_args():
     g.add_argument("--image", "-i", type=str, help="Image file to display")
     g.add_argument(
         "--pattern", "-p",
-        default="blue",
         choices=["blue", "red", "green", "white", "black", "gradient", "grid", "colors"],
-        help="Test pattern (default: blue)",
+        help="Test pattern",
     )
     g.add_argument("--system", "-s", action="store_true", help="Show system information")
     # Control
@@ -238,6 +271,11 @@ def parse_args():
     p.add_argument("--timeout", type=int, metavar="SEC", help="Display timeout in seconds")
     p.add_argument("--init", action="store_true", help="Init sequence (conn + timeout + recovery + wakeup)")
     p.add_argument("--reset", action="store_true", help="Reset USB device before open")
+    p.add_argument("--brightness", "-b", type=int, metavar="0-100",
+                   help="Set display brightness (0-100)")
+    p.add_argument("--orientation", "-o", type=int, metavar="ANGLE",
+                   choices=[0, 90, 180, 270],
+                   help="Set display orientation (0/90/180/270)")
     # Display
     p.add_argument("--resolution", "-r", default="640x480", choices=["640x480", "480x320"], help="Resolution")
     p.add_argument("--format", "-f", default="png", choices=["jpeg", "png", "bmp", "gif", "mp4"], help="Encode format")
@@ -265,6 +303,8 @@ if __name__ == "__main__":
         "recovery": args.recovery,
         "timeout": args.timeout,
         "init": args.init,
+        "brightness": args.brightness,
+        "orientation": args.orientation,
         "format": args.format,
         "loop": args.loop,
     }

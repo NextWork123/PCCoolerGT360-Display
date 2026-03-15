@@ -16,6 +16,7 @@ Usage as a library:
 
 from .controller import DisplayController
 from .image_processor import ImageProcessor, ScreensaverGenerator, BUILTIN_IMAGE_B64, PIL_AVAILABLE
+from .display_settings import set_brightness, set_orientation, probe_orientation_protocol
 from .constants import (
     VENDOR_ID,
     PRODUCT_ID,
@@ -32,6 +33,9 @@ __all__ = [
     "ScreensaverGenerator",
     "BUILTIN_IMAGE_B64",
     "PIL_AVAILABLE",
+    "set_brightness",
+    "set_orientation",
+    "probe_orientation_protocol",
     "VENDOR_ID",
     "PRODUCT_ID",
     "DISPLAY_WIDTH",

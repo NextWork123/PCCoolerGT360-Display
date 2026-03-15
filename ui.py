@@ -82,7 +82,7 @@ class Api:
         # Map JS options to Python kwargs
         kwargs = {
             "image": options.get("image"),
-            "pattern": options.get("pattern", "blue"),
+            "pattern": options.get("pattern"),
             "system": options.get("system", False),
             "screensaver": options.get("screensaver") or None,
             "screensaver_quality": int(options.get("screensaver_quality", 60)),
@@ -98,7 +98,9 @@ class Api:
             "chunk_delay": float(options.get("chunk_delay", 0.001)),
             "max_retries": int(options.get("max_retries", 10)),
             "verbose": False,
-            "stop_event": stop_event
+            "stop_event": stop_event,
+            "brightness": options.get("brightness"),
+            "orientation": options.get("orientation"),
         }
         
         timeout = options.get("timeout")
@@ -877,6 +879,41 @@ HTML = '''<!DOCTYPE html>
       </div>
     </div>
     
+    <!-- Display Settings -->
+    <div class="section">
+      <div class="section-title">🎚️ Display Settings</div>
+      
+      <!-- Brightness Control -->
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Brightness</div>
+          <div class="setting-desc">Screen backlight level</div>
+        </div>
+        <div class="slider-wrap">
+          <input type="range" class="slider" id="brightness" min="0" max="100" value="100">
+          <span class="slider-val" id="brightness-val">100</span>
+          <button class="btn btn-primary" id="btn-brightness" style="margin-left: 8px; padding: 6px 12px; font-size: 12px;">Apply</button>
+        </div>
+      </div>
+      
+      <!-- Orientation Control -->
+      <div class="setting-row" style="border-bottom: none;">
+        <div class="setting-info">
+          <div class="setting-label">Orientation</div>
+          <div class="setting-desc">Screen rotation angle</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <select class="select" id="orientation">
+            <option value="0">0° (Normal)</option>
+            <option value="90">90°</option>
+            <option value="180">180°</option>
+            <option value="270">270°</option>
+          </select>
+          <button class="btn btn-primary" id="btn-orientation" style="padding: 6px 12px; font-size: 12px;">Apply</button>
+        </div>
+      </div>
+    </div>
+    
     <!-- Quick Actions -->
     <div class="section">
       <div class="section-title">⚡ Quick Actions</div>
@@ -1023,6 +1060,7 @@ HTML = '''<!DOCTYPE html>
     var ssQuality = document.getElementById('screensaver-quality');
     var ssScale = document.getElementById('screensaver-scale');
     var chunkDelaySlider = document.getElementById('chunk-delay');
+    var brightnessSlider = document.getElementById('brightness');
     
     if (ssQuality) {
       ssQuality.addEventListener('input', function() {
@@ -1044,6 +1082,14 @@ HTML = '''<!DOCTYPE html>
         var actual = val === 0 ? 0 : val / 1000;
         var display = document.getElementById('chunk-delay-val');
         if (display) display.textContent = actual.toFixed(3);
+      });
+    }
+    
+    // Brightness slider update
+    if (brightnessSlider) {
+      brightnessSlider.addEventListener('input', function() {
+        var val = document.getElementById('brightness-val');
+        if (val) val.textContent = this.value;
       });
     }
     
@@ -1240,7 +1286,9 @@ HTML = '''<!DOCTYPE html>
         loop: document.getElementById('loop') ? document.getElementById('loop').checked : false,
         chunk_delay: chunkDelay === 0 ? 0 : chunkDelay / 1000,
         max_retries: document.getElementById('max-retries') ? document.getElementById('max-retries').value : 10,
-        timeout: document.getElementById('timeout') ? (document.getElementById('timeout').value || null) : null
+        timeout: document.getElementById('timeout') ? (document.getElementById('timeout').value || null) : null,
+        brightness: document.getElementById('brightness') ? parseInt(document.getElementById('brightness').value) : null,
+        orientation: document.getElementById('orientation') ? parseInt(document.getElementById('orientation').value) : null
       };
       
       if (extra) {
@@ -1295,6 +1343,30 @@ HTML = '''<!DOCTYPE html>
         }
       });
     });
+    
+    // Brightness Apply Button
+    var brightnessBtn = document.getElementById('btn-brightness');
+    if (brightnessBtn) {
+      brightnessBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        setBusy(true);
+        if (window.pywebview && window.pywebview.api) {
+          window.pywebview.api.run({brightness: parseInt(document.getElementById('brightness').value)});
+        }
+      });
+    }
+    
+    // Orientation Apply Button
+    var orientationBtn = document.getElementById('btn-orientation');
+    if (orientationBtn) {
+      orientationBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        setBusy(true);
+        if (window.pywebview && window.pywebview.api) {
+          window.pywebview.api.run({orientation: parseInt(document.getElementById('orientation').value)});
+        }
+      });
+    }
     
     // Keyboard Shortcuts
     document.addEventListener('keydown', function(e) {

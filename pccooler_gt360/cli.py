@@ -59,6 +59,13 @@ Examples:
     parser.add_argument('--recovery', action='store_true', help='Enable recovery mode')
     parser.add_argument('--timeout', type=int, metavar='SEC', help='Set display timeout in seconds (0=disable?)')
     parser.add_argument('--init', action='store_true', help='Send initialization sequence (conn + timeout + recovery)')
+    parser.add_argument('--brightness', '-b', type=int, metavar='0-100',
+                       help='Set display brightness (0-100)')
+    parser.add_argument('--orientation', '-o', type=int, metavar='ANGLE',
+                       choices=[0, 90, 180, 270],
+                       help='Set display orientation (0/90/180/270)')
+    parser.add_argument('--probe-orientation', action='store_true',
+                       help='Probe device to find correct orientation protocol')
     
     # Display options
     parser.add_argument('--resolution', '-r', default='640x480', choices=['640x480', '480x320'],
@@ -130,6 +137,32 @@ Examples:
                 ctrl.wakeup()
                 time.sleep(0.5)
                 print("✅ Initialization complete")
+
+            if args.brightness is not None:
+                if ctrl.set_brightness(args.brightness):
+                    print(f"✅ Brightness set to {args.brightness}%")
+                else:
+                    print("❌ Brightness setting failed")
+                time.sleep(0.3)
+
+            if args.orientation is not None:
+                if ctrl.set_orientation(args.orientation):
+                    print(f"✅ Orientation set to {args.orientation}°")
+                else:
+                    print("❌ Orientation setting failed - try --probe-orientation to find correct protocol")
+                time.sleep(0.3)
+            
+            if args.probe_orientation:
+                print("🔍 Probing orientation protocol...")
+                results = ctrl.probe_orientation()
+                success_found = any(r.get("state") == "success" for r in results.values())
+                if success_found:
+                    print("\n✅ Found working protocol:")
+                    for variant, ack in results.items():
+                        if ack.get("state") == "success":
+                            print(f"  -> {variant}")
+                else:
+                    print("\n❌ No working protocol found. Device may not support orientation control.")
             
             # Handle image display
             if args.image or args.pattern or args.system:

@@ -6,6 +6,7 @@ from . import protocol
 from . import device
 from . import power
 from . import transfer
+from . import display_settings
 from .device import USB_AVAILABLE
 from .image_processor import ImageProcessor, PIL_AVAILABLE
 
@@ -53,7 +54,25 @@ class DisplayController:
     def set_timeout(self, seconds: int = 60) -> bool:
         """Set display timeout in seconds (0 = disable timeout?)"""
         return power.set_timeout(self.device, self._get_next_seq(), seconds=seconds, verbose=self.verbose)
-    
+
+    def set_brightness(self, level: int) -> bool:
+        """Set display brightness (0-100)."""
+        return display_settings.set_brightness(
+            self.device, self._get_next_seq(), level, self.verbose
+        )
+
+    def set_orientation(self, angle: int) -> bool:
+        """Set display orientation (0, 90, 180, 270)."""
+        return display_settings.set_orientation(
+            self.device, self._get_next_seq(), angle, self.verbose
+        )
+
+    def probe_orientation(self) -> dict:
+        """Probe device to find correct orientation protocol."""
+        return display_settings.probe_orientation_protocol(
+            self.device, self._get_next_seq(), self.verbose
+        )
+
     def connect(self) -> bool:
         """Send initial connection command"""
         return device.connect(self.device, self._get_next_seq(), verbose=self.verbose)
