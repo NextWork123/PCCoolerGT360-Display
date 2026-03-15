@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pccooler-gt360"
+version = "0.1.0"
+description = "USB display controller for PCCooler GT360 AIO liquid cooler (3.5\" IPS LCD)"
+readme = "README.md"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "PCCooler GT360 Contributors"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Hardware",
+    "Topic :: Multimedia :: Graphics :: Display",
+]
+keywords = ["pccooler", "gt360", "aio", "lcd", "display", "usb"]
+requires-python = ">=3.8"
+dependencies = [
+    "pyserial>=3.5",
+    "Pillow>=9.0.0",
+]
+
+[project.optional-dependencies]
+gui = ["pywebview>=4.0"]
+
+[project.scripts]
+pccooler-gt360 = "pccooler_gt360.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/NextWork123/PCCoolerGT360-Display"
+Repository = "https://github.com/NextWork123/PCCoolerGT360-Display"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pccooler_gt360*"]
+
+[tool.setuptools.package-data]
+pccooler_gt360 = ["*.py"]
