@@ -34,6 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["pywebview>=4.0"]
+video = []  # Video support uses system FFmpeg (no Python deps required)
 
 [project.scripts]
 pccooler-gt360 = "pccooler_gt360.cli:main"

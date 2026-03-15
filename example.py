@@ -8,6 +8,11 @@ from datetime import datetime
 
 from pccooler_gt360 import DisplayController, ImageProcessor, ScreensaverGenerator, DISPLAY_MODES
 
+try:
+    from pccooler_gt360.image_processor import FFMPEG_AVAILABLE
+except ImportError:
+    FFMPEG_AVAILABLE = False
+
 
 def main(**kwargs):
     verbose = kwargs.pop("verbose", False)
@@ -203,14 +208,51 @@ def main(**kwargs):
                 print(f"🎨 Pattern: {pattern}")
                 img = ImageProcessor.create_test_pattern(pattern, width, height)
 
-            # GIF: first frame only
+            # GIF: check if animated, convert to MP4 if possible
             if image and image.lower().endswith(".gif"):
+                is_animated = ImageProcessor.is_gif_animated(image)
+                
+                if is_animated and FFMPEG_AVAILABLE:
+                    # Convert animated GIF to MP4
+                    print(f"🎬 Converting animated GIF to MP4: {image}")
+                    try:
+                        mp4_data = ImageProcessor.convert_gif_to_mp4(image, width, height)
+                        
+                        def send_mp4():
+                            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-") + str(int(datetime.now().microsecond / 1000))
+                            filename = f"{ts}.mp4"
+                            print(f"📁 Sending MP4: {len(mp4_data)} bytes ({filename})")
+                            return ctrl.send_image(mp4_data, filename, chunk_delay=chunk_delay)
+                        
+                        success = send_mp4()
+                        if success:
+                            print("✅ MP4 sent successfully!")
+                            if timeout is not None and timeout > 5:
+                                interval = timeout - 5
+                                print(f"🔄 Keep-alive enabled (every {interval}s)")
+                                while not (stop_event and stop_event.is_set()):
+                                    if stop_event:
+                                        if stop_event.wait(interval):
+                                            break
+                                    else:
+                                        time.sleep(interval)
+                                    send_mp4()
+                        else:
+                            print("❌ Failed to send MP4")
+                        return
+                    except Exception as e:
+                        print(f"⚠️ GIF conversion failed: {e}")
+                        print("🖼️ Falling back to first frame...")
+                
+                # Static GIF or conversion failed: use first frame
+                from PIL import Image
                 gif = Image.open(image)
                 gif.seek(0)
                 gif.thumbnail((width, height), Image.Resampling.LANCZOS)
                 img = Image.new("RGBA", (width, height), (0, 0, 0, 255))
                 offset = ((width - gif.width) // 2, (height - gif.height) // 2)
                 img.paste(gif.convert("RGBA"), offset)
+                gif.close()
                 print(f"📁 First frame from GIF ({gif.width}x{gif.height})")
 
             # Encode

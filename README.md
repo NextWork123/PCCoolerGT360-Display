@@ -5,6 +5,7 @@ USB display controller for PCCooler GT360 AIO liquid cooler (3.5" IPS LCD). Send
 ## Features
 
 - 🖼️ **Send Images & Videos** — Display custom images (PNG, JPEG, GIF, BMP) and videos (MP4)
+- 🎬 **GIF to MP4 Conversion** — Animated GIFs are automatically converted to H.264 MP4 for playback
 - 🎨 **Test Patterns** — Built-in patterns: Blue, Red, Green, White, Black, Gradient, Grid, Colors
 - 🖥️ **System Information** — Show real-time CPU/GPU stats on the display
 - ✨ **Animated Screensavers** — Bounce, Mystify, Starfield, Pipes 3D, Cat + Pipes
@@ -18,6 +19,25 @@ pip install -e .
 ```
 
 Dependencies: `pyserial`, `Pillow`, `pywebview` (for GUI)
+
+### Optional: FFmpeg for GIF Conversion
+
+To enable automatic conversion of animated GIFs to MP4 videos, install FFmpeg:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install ffmpeg
+```
+
+**Arch:**
+```bash
+pacman -S ffmpeg
+```
+
+**Verification:**
+```bash
+ffmpeg -version
+```
 
 ## USB Connection
 
@@ -76,6 +96,50 @@ pccooler-gt360 --image photo.png
 pccooler-gt360 --system
 pccooler-gt360 --help
 ```
+
+## GIF to MP4 Conversion
+
+Animated GIFs are automatically converted to H.264-encoded MP4 videos when FFmpeg is installed. This allows smooth playback of animated content on the display.
+
+### How it works
+
+- **Automatic detection**: The system detects if a GIF has multiple frames
+- **FFmpeg conversion**: Converts to H.264 MP4 with optimized settings (baseline profile, yuv420p)
+- **Graceful fallback**: If FFmpeg is not available, the first frame is displayed as a static image
+
+### Usage Examples
+
+**CLI with GIF:**
+```bash
+# Automatically converts animated GIF to MP4
+pccooler-gt360 --image animation.gif
+```
+
+**Library usage:**
+```python
+from pccooler_gt360 import DisplayController, ImageProcessor
+
+with DisplayController() as ctrl:
+    ctrl.open_device()
+    ctrl.wakeup()
+    
+    # Check if GIF is animated
+    if ImageProcessor.is_gif_animated("animation.gif"):
+        # Convert to MP4
+        mp4_data = ImageProcessor.convert_gif_to_mp4("animation.gif")
+        ctrl.send_image(mp4_data, "animation.mp4")
+    else:
+        # Handle as static image
+        img = ImageProcessor.load_image("animation.gif")
+        ctrl.send_image(ImageProcessor.create_png(img), "frame.png")
+```
+
+### Limitations
+
+- **Duration**: GIFs longer than 60 seconds may take significant time to convert
+- **Transparency**: Converted to black background (H.264 limitation)
+- **Resolution**: Upscaling low-res GIFs may look pixelated
+- **FFmpeg required**: Conversion only works if FFmpeg is installed
 
 ## Library Usage
 

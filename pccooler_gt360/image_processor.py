@@ -9,6 +9,14 @@ from datetime import datetime
 
 from .constants import DISPLAY_WIDTH, DISPLAY_HEIGHT
 
+# Video conversion support (optional, requires FFmpeg)
+try:
+    from .video_converter import VideoConverter, is_ffmpeg_available
+    FFMPEG_AVAILABLE = is_ffmpeg_available()
+except ImportError:
+    FFMPEG_AVAILABLE = False
+    VideoConverter = None
+
 
 BUILTIN_IMAGE_B64 = (
     "iVBORw0KGgoAAAANSUhEUgAABQAAAALQCAIAAABAH0oBAAAAAXNSR0IArs4c6QAAAERlWElmTU0A"
@@ -12516,6 +12524,56 @@ class ImageProcessor:
                   fill=(150, 150, 150), font=font_small)
         
         return img
+
+    @staticmethod
+    def convert_gif_to_mp4(
+        gif_path: str,
+        width: int = DISPLAY_WIDTH,
+        height: int = DISPLAY_HEIGHT,
+        fps: int = None
+    ) -> bytes:
+        """Convert animated GIF to MP4 bytes for display.
+        
+        Args:
+            gif_path: Path to the GIF file
+            width: Target width (default 640)
+            height: Target height (default 480)
+            fps: Target FPS (None = auto from source, capped at 30)
+            
+        Returns:
+            MP4 file contents as bytes
+            
+        Raises:
+            RuntimeError: If FFmpeg not available or conversion fails
+        """
+        if not FFMPEG_AVAILABLE:
+            raise RuntimeError(
+                "FFmpeg not available. Install FFmpeg to convert GIF files: "
+                "https://ffmpeg.org/download.html"
+            )
+        
+        converter = VideoConverter()
+        return converter.convert_to_bytes(gif_path, width, height, fps)
+
+    @staticmethod
+    def is_gif_animated(gif_path: str) -> bool:
+        """Check if a GIF file has multiple frames (is animated).
+        
+        Args:
+            gif_path: Path to the GIF file
+            
+        Returns:
+            True if the GIF has more than one frame
+        """
+        if not PIL_AVAILABLE:
+            return False
+            
+        try:
+            with Image.open(gif_path) as gif:
+                gif.seek(1)  # Try to access second frame
+                return True
+        except (EOFError, OSError, IOError):
+            return False
 
 
 class ScreensaverGenerator:

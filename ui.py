@@ -103,6 +103,11 @@ class Api:
             "orientation": options.get("orientation"),
         }
         
+        # Auto-convert format to MP4 for animated GIFs
+        image_path = kwargs.get("image", "")
+        if image_path and image_path.lower().endswith(".gif"):
+            kwargs["format"] = "mp4"
+        
         timeout = options.get("timeout")
         if timeout is not None and str(timeout).strip() != "":
             kwargs["timeout"] = int(timeout)
@@ -1126,7 +1131,7 @@ HTML = '''<!DOCTYPE html>
       
       // Auto-set format from extension
       var ext = (path.split('.').pop() || '').toLowerCase();
-      var map = { png: 'png', jpg: 'jpeg', jpeg: 'jpeg', gif: 'gif', bmp: 'bmp', mp4: 'mp4' };
+      var map = { png: 'png', jpg: 'jpeg', jpeg: 'jpeg', gif: 'mp4', bmp: 'bmp', mp4: 'mp4' };
       var formatSelect = document.getElementById('format');
       if (map[ext] && formatSelect) {
         formatSelect.value = map[ext];
