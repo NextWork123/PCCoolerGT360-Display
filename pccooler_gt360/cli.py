@@ -10,7 +10,7 @@ from datetime import datetime
 from .controller import DisplayController
 from .image_processor import ImageProcessor, PIL_AVAILABLE
 from .constants import DISPLAY_MODES
-from .device import USB_AVAILABLE
+from .device import WIREIO_AVAILABLE as USB_AVAILABLE
 
 
 def main():

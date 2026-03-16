@@ -11,14 +11,17 @@ USB display controller for PCCooler GT360 AIO liquid cooler (3.5" IPS LCD). Send
 - ✨ **Animated Screensavers** — Bounce, Mystify, Starfield, Pipes 3D, Cat + Pipes
 - ⚡ **Device Control** — Wakeup, Sleep, Recovery, Init, Reset commands
 - 🌓 **Modern UI** — Windows 11 Fluent Design with light/dark theme support
+- 🚀 **Async Support** — Native asyncio support for non-blocking operations
 
 ## Install
+
+**Requirements:** Python 3.10+
 
 ```bash
 pip install -e .
 ```
 
-Dependencies: `pyserial`, `Pillow`, `pywebview` (for GUI)
+Dependencies: `wireio` (modern serial library), `Pillow`, `pywebview` (for GUI)
 
 ### Optional: FFmpeg for GIF Conversion
 
@@ -41,7 +44,7 @@ ffmpeg -version
 
 ## USB Connection
 
-This library uses **pyserial** to communicate with the device via CDC ACM (serial port). The device will appear as a serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows).
+This library uses **wireio** (modern replacement for pyserial) to communicate with the device via CDC ACM (serial port). The device will appear as a serial port (`/dev/ttyACM0` on Linux, `COMx` on Windows).
 
 ```python
 from pccooler_gt360 import DisplayController
@@ -55,6 +58,53 @@ with DisplayController(verbose=True) as ctrl:
 - Auto-detects serial port by USB VID/PID
 - Standard serial port interface
 - Works on Linux, Windows, and macOS
+- Native async support via `AsyncDisplayController`
+
+## Async API (New)
+
+For non-blocking operations, use `AsyncDisplayController`:
+
+```python
+import asyncio
+from pccooler_gt360 import AsyncDisplayController, ImageProcessor
+
+async def main():
+    async with AsyncDisplayController(verbose=True) as ctrl:
+        await ctrl.open_device()
+        await ctrl.wakeup()
+        
+        img = ImageProcessor.create_test_pattern("blue")
+        data = ImageProcessor.create_png(img)
+        
+        # Non-blocking send - can cancel mid-transfer
+        await ctrl.send_image(data, "test.png")
+
+asyncio.run(main())
+```
+
+### Async Features
+
+- **Non-blocking operations** — UI remains responsive during transfers
+- **Cancellation support** — Cancel long transfers gracefully
+- **Concurrent operations** — Monitor device while sending images
+- **Better performance** — No polling loops, efficient async I/O
+
+```python
+async def send_with_cancellation(ctrl):
+    cancellation_event = asyncio.Event()
+    
+    # Start transfer
+    task = asyncio.create_task(
+        ctrl.send_image(large_data, "big.png", cancellation_event=cancellation_event)
+    )
+    
+    # Cancel after 5 seconds if not complete
+    await asyncio.sleep(5)
+    if not task.done():
+        cancellation_event.set()
+    
+    return await task
+```
 
 ## GUI Application
 
@@ -143,6 +193,8 @@ with DisplayController() as ctrl:
 
 ## Library Usage
 
+### Synchronous API
+
 ```python
 from pccooler_gt360 import DisplayController, ImageProcessor, DISPLAY_WIDTH, DISPLAY_HEIGHT
 
@@ -152,6 +204,25 @@ with DisplayController(verbose=True) as ctrl:
     img = ImageProcessor.create_test_pattern("blue")
     data = ImageProcessor.create_png(img)
     ctrl.send_image(data, "test.png")
+```
+
+### Asynchronous API
+
+```python
+import asyncio
+from pccooler_gt360 import AsyncDisplayController, ImageProcessor
+
+async def display_system_info():
+    async with AsyncDisplayController(verbose=True) as ctrl:
+        await ctrl.open_device()
+        await ctrl.wakeup()
+        
+        # Create and send image
+        img = ImageProcessor.create_system_info(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        data = ImageProcessor.create_png(img)
+        await ctrl.send_image(data, "system.png")
+
+asyncio.run(display_system_info())
 ```
 
 ## Testing
@@ -165,10 +236,22 @@ python -c "from pccooler_gt360 import DisplayController; print('OK')"
 List available serial ports:
 
 ```python
-from serial.tools.list_ports import comports
-for p in comports():
-    print(f"{p.device}: {p.description} [{p.hwid}]")
+from wireio import list_ports
+
+for port in list_ports():
+    print(f"{port.device}: {port.description} [{port.hwid}]")
 ```
+
+## Migration from pyserial
+
+This project now uses **wireio** instead of pyserial. WireIO provides:
+
+- Built-in async support with `AsyncSerial`
+- Full type hints (PEP 561)
+- Modern Python 3.10+ features
+- Drop-in replacement for pyserial
+
+The `DisplayController` API remains unchanged — existing code continues to work.
 
 ## Credits
 - [Shiberal](https://github.com/Shiberal) — For help with the library and UI.

@@ -26,9 +26,9 @@ classifiers = [
     "Topic :: Multimedia :: Graphics :: Display",
 ]
 keywords = ["pccooler", "gt360", "aio", "lcd", "display", "usb"]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
-    "pyserial>=3.5",
+    "wireio>=0.1.0",
     "Pillow>=9.0.0",
 ]
 
