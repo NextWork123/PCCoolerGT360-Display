@@ -161,7 +161,7 @@ Animated GIFs are automatically converted to H.264-encoded MP4 videos when FFmpe
 
 **CLI with GIF:**
 ```bash
-# Automatically converts animated GIF to MP4
+# Automatically converts animated GIF to MP4 with pixel-perfect scaling
 pccooler-gt360 --image animation.gif
 ```
 
@@ -175,7 +175,7 @@ with DisplayController() as ctrl:
     
     # Check if GIF is animated
     if ImageProcessor.is_gif_animated("animation.gif"):
-        # Convert to MP4
+        # Convert to MP4 with pixel-perfect nearest neighbor scaling
         mp4_data = ImageProcessor.convert_gif_to_mp4("animation.gif")
         ctrl.send_image(mp4_data, "animation.mp4")
     else:

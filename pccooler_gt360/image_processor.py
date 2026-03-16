@@ -12534,6 +12534,9 @@ class ImageProcessor:
     ) -> bytes:
         """Convert animated GIF to MP4 bytes for display.
         
+        Uses nearest neighbor scaling (flags=neighbor) for pixel-perfect
+        upscaling, preserving sharp edges on pixel art and low-res GIFs.
+        
         Args:
             gif_path: Path to the GIF file
             width: Target width (default 640)

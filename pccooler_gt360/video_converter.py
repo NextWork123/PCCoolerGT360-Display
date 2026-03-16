@@ -160,6 +160,9 @@ class VideoConverter:
     ) -> None:
         """Convert GIF to H.264 MP4 optimized for display.
         
+        Uses nearest neighbor scaling (flags=neighbor) for sharp pixel-perfect
+        upscaling of pixel art and low-resolution GIFs.
+        
         Args:
             input_path: Path to input GIF file
             output_path: Path for output MP4 file
@@ -190,17 +193,21 @@ class VideoConverter:
             fps = min(int(source_fps) if source_fps > 0 else 10, 30)
         fps = min(fps, 30)
 
-        # Build filter complex
+        # Build filter complex with nearest neighbor scaling
+        # Use iw/ih expressions for flexible scaling
+        # force_original_aspect_ratio=decrease ensures the image fits within bounds
+        # flags=neighbor ensures pixel-perfect sharp scaling
         if maintain_aspect:
             # Scale to fit within dimensions while preserving aspect ratio, then pad
+            # Using w/h expressions: min(iw*4,640) would limit to 4x scale or display width
             filter_complex = (
-                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=neighbor,"
                 f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
                 f"fps={fps}"
             )
         else:
             # Stretch to fill
-            filter_complex = f"scale={width}:{height},fps={fps}"
+            filter_complex = f"scale={width}:{height}:flags=neighbor,fps={fps}"
 
         # Build FFmpeg command
         cmd = [
@@ -233,6 +240,89 @@ class VideoConverter:
         except subprocess.SubprocessError as e:
             raise RuntimeError(f"FFmpeg execution failed: {e}")
 
+    def gif_to_mp4_integer_scale(
+        self,
+        input_path: str,
+        output_path: str,
+        scale_factor: int = 4,
+        fps: Optional[int] = None,
+        max_width: int = 640,
+        max_height: int = 480
+    ) -> None:
+        """Convert GIF to MP4 using exact integer scaling.
+        
+        Uses iw*scale_factor:ih*scale_factor for pixel-perfect upscaling.
+        Result is cropped or padded to fit within max_width x max_height.
+        
+        Args:
+            input_path: Path to input GIF file
+            output_path: Path for output MP4 file
+            scale_factor: Integer scale multiplier (e.g., 4 for 4x scaling)
+            fps: Target FPS (None = auto from source, capped at 30)
+            max_width: Maximum output width
+            max_height: Maximum output height
+            
+        Raises:
+            RuntimeError: If FFmpeg not available or conversion fails
+        """
+        if not self.is_available():
+            raise RuntimeError(
+                f"FFmpeg not found at '{self.ffmpeg_path}'. "
+                "Install FFmpeg to convert GIF files."
+            )
+
+        input_path = Path(input_path)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+
+        # Get GIF info to determine FPS
+        gif_info = self.get_gif_info(str(input_path))
+        source_fps = gif_info.get('fps', 10.0)
+        
+        if fps is None:
+            fps = min(int(source_fps) if source_fps > 0 else 10, 30)
+        fps = min(fps, 30)
+
+        # Build filter with integer scaling: iw*4:ih*4
+        # Then crop or pad to fit within display bounds
+        # Note: In FFmpeg expressions, commas must be escaped with \
+        filter_complex = (
+            f"scale=iw*{scale_factor}:ih*{scale_factor}:flags=neighbor,"
+            f"crop=min(iw\\,{max_width}):min(ih\\,{max_height}):"
+            f"(iw-min(iw\\,{max_width}))/2:(ih-min(ih\\,{max_height}))/2,"
+            f"pad={max_width}:{max_height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"fps={fps}"
+        )
+
+        cmd = [
+            self.ffmpeg_path,
+            '-y',
+            '-i', str(input_path),
+            '-vf', filter_complex,
+        ] + self.DEFAULT_FFMPEG_ARGS + [str(output_path)]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr[-500:] if result.stderr else "Unknown error"
+                raise RuntimeError(f"FFmpeg conversion failed: {error_msg}")
+                
+            output_file = Path(output_path)
+            if not output_file.exists() or output_file.stat().st_size == 0:
+                raise RuntimeError("FFmpeg produced empty output file")
+                
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("FFmpeg conversion timed out")
+        except subprocess.SubprocessError as e:
+            raise RuntimeError(f"FFmpeg execution failed: {e}")
+
     def convert_to_bytes(
         self,
         input_path: str,
@@ -241,6 +331,8 @@ class VideoConverter:
         fps: Optional[int] = None
     ) -> bytes:
         """Convert GIF to MP4 and return as bytes.
+        
+        Uses nearest neighbor scaling for pixel-perfect upscaling.
         
         Args:
             input_path: Path to input GIF file
