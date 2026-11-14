@@ -10,11 +10,12 @@ if sys.platform == "linux":
     # Force pywebview to use PyQt6 (PyQt5 may be missing QtWebChannel on some systems)
     os.environ.setdefault("QT_API", "pyqt6")
 
+import atexit
 import json
 import subprocess
 import threading
 import webview
-from example import main as example_main
+from example import main as example_main, KEEPALIVE_MARKER
 
 # Global stop event for keep-alive and loops
 stop_event = threading.Event()
@@ -22,45 +23,80 @@ worker_thread = None
 # Current privileged helper process (Unix); stop() terminates it
 _helper_process = None
 
-def _run_privileged_helper(kwargs_serializable, stop_event):
-    """Run example_main in a privileged subprocess (Unix). Returns (success, message)."""
+def _run_privileged_helper(kwargs_serializable, stop_event, on_line=None):
+    """Run example_main in a privileged subprocess (Unix). Returns (success, message).
+
+    on_line(line) is called for every stdout line as it is produced, so the UI
+    can react while the helper keeps running (e.g. during keep-alive).
+    """
     global _helper_process
     project_dir = os.path.dirname(os.path.abspath(__file__))
     helper_path = os.path.join(project_dir, "privileged_helper.py")
     sudo_cmd = os.environ.get("PCCOOLER_SUDO", "sudo")
-    cmd = [sudo_cmd, sys.executable, helper_path]
+    cmd = [sudo_cmd, sys.executable, "-u", helper_path]
+    proc = None
+    reader = None
     try:
-        _helper_process = subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=project_dir,
         )
-        _helper_process.stdin.write(json.dumps(kwargs_serializable).encode("utf-8"))
-        _helper_process.stdin.close()
+        _helper_process = proc
+        proc.stdin.write(json.dumps(kwargs_serializable).encode("utf-8"))
+        proc.stdin.close()
+
+        def read_stdout():
+            for raw in proc.stdout:
+                if on_line:
+                    try:
+                        on_line(raw.decode("utf-8", errors="replace").rstrip("\n"))
+                    except Exception:
+                        pass
+
+        reader = threading.Thread(target=read_stdout, daemon=True)
+        reader.start()
+
         while True:
-            if _helper_process.poll() is not None:
-                returncode = _helper_process.returncode
+            if proc.poll() is not None:
+                returncode = proc.returncode
                 break
             if stop_event.is_set():
-                _helper_process.terminate()
+                proc.terminate()
                 try:
-                    _helper_process.wait(timeout=5)
+                    proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    _helper_process.kill()
+                    proc.kill()
                 return True, "Stopped"
             stop_event.wait(timeout=0.5)
-        out = _helper_process.stdout.read() if _helper_process.stdout else b""
-        err = _helper_process.stderr.read() if _helper_process.stderr else b""
+        reader.join(timeout=2)
+        err = proc.stderr.read() if proc.stderr else b""
     except Exception as e:
         return False, str(e)
     finally:
-        _helper_process = None
+        if _helper_process is proc:
+            _helper_process = None
     err_text = err.decode("utf-8", errors="replace").strip() if err else ""
     if returncode != 0:
         return False, err_text or f"Exit code {returncode}"
     return True, "Done"
+
+def _shutdown_helper():
+    """Stop any running worker/helper (e.g. keep-alive) when the UI closes."""
+    stop_event.set()
+    proc = _helper_process
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+atexit.register(_shutdown_helper)
+
 
 class Api:
     def __init__(self):
@@ -126,32 +162,48 @@ class Api:
         else:
             kwargs["timeout"] = None
 
+        my_stop = stop_event
+        keepalive_reported = threading.Event()
+
+        def js(code):
+            if self._window:
+                self._window.evaluate_js(code)
+
+        def js_str(msg):
+            return str(msg).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+        def report(ok, msg):
+            # A worker stopped by Stop or by a newer Send must not touch the UI
+            # (Stop reports itself; a newer Send owns the status now).
+            if my_stop.is_set():
+                return
+            js(f'window.__runComplete({"true" if ok else "false"}, "{js_str(msg)}")')
+
+        def on_keepalive():
+            if not keepalive_reported.is_set() and not my_stop.is_set():
+                keepalive_reported.set()
+                js('window.__keepAlive("Sent · keeping display on (Stop to release)")')
+
+        def on_line(line):
+            if KEEPALIVE_MARKER in line:
+                on_keepalive()
+
         def worker():
             use_helper = hasattr(os, "geteuid") and sys.platform != "win32"
-            if use_helper:
-                # Run USB operations in a privileged subprocess (sudo)
-                kwargs_serializable = {k: v for k, v in kwargs.items() if k != "stop_event"}
-                try:
-                    ok, msg = _run_privileged_helper(kwargs_serializable, stop_event)
-                    if self._window:
-                        # Escape for JS double-quoted string: \ " and newlines
-                        safe_msg = msg.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete({"true" if ok else "false"}, "{safe_msg}")')
-                except Exception as e:
-                    print(f"Error in worker: {e}")
-                    if self._window:
-                        msg = str(e).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete(false, "{msg}")')
-            else:
-                try:
-                    example_main(**kwargs)
-                    if self._window:
-                        self._window.evaluate_js('window.__runComplete(true, "Done")')
-                except Exception as e:
-                    print(f"Error in worker: {e}")
-                    if self._window:
-                        msg = str(e).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete(false, "{msg}")')
+            try:
+                if use_helper:
+                    # Run USB operations in a subprocess (sudo by default, see PCCOOLER_SUDO)
+                    kwargs_serializable = {k: v for k, v in kwargs.items() if k != "stop_event"}
+                    ok, msg = _run_privileged_helper(kwargs_serializable, my_stop, on_line)
+                else:
+                    example_main(**kwargs, on_keepalive=on_keepalive)
+                    ok, msg = True, "Done"
+                report(ok, msg)
+            except SystemExit as e:
+                report(e.code in (0, None), "Done" if e.code in (0, None) else f"Exit code {e.code}")
+            except Exception as e:
+                print(f"Error in worker: {e}")
+                report(False, e)
 
         worker_thread = threading.Thread(target=worker, daemon=True)
         worker_thread.start()
@@ -1326,6 +1378,13 @@ HTML = '''<!DOCTYPE html>
       setBusy(false);
       showInfoBar(message, ok ? 'success' : 'error');
     };
+
+    // Media sent; helper keeps running in background only to keep the display on
+    window.__keepAlive = function(message) {
+      setBusy(false);
+      if (statusText) statusText.textContent = 'Keeping display on';
+      showInfoBar(message, 'success');
+    };
     
     // Get Options
     window.getOptions = function(extra) {
@@ -1457,6 +1516,7 @@ def main():
         api = Api()
         window = webview.create_window("PCCooler Display", html=HTML, width=720, height=900, js_api=api)
         api.set_window(window)
+        window.events.closed += _shutdown_helper
         if sys.platform == "linux":
             webview.start(gui="qt")
         else:

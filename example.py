@@ -17,6 +17,8 @@ except ImportError:
 
 
 KEEPALIVE_INTERVAL = 50  # seconds; displays turn off ~60 s after the last command
+# Printed when the keep-alive phase starts; the GUI uses it to stop showing "busy".
+KEEPALIVE_MARKER = "Keep-alive enabled"
 
 
 def _keepalive_interval(timeout, keep_alive):
@@ -28,14 +30,16 @@ def _keepalive_interval(timeout, keep_alive):
     return None
 
 
-def _keep_alive(ctrl, interval, stop_event=None):
+def _keep_alive(ctrl, interval, stop_event=None, on_start=None):
     """Keep the display on by sending WAKEUP periodically until stopped.
 
     A WAKEUP is enough to reset the display's idle timeout (tested on DC360);
     there is no need to re-upload the media, which avoids writes to the
     device storage.
     """
-    print(f"🔄 Keep-alive enabled (wakeup every {interval}s, Ctrl+C or Stop to quit)", flush=True)
+    print(f"🔄 {KEEPALIVE_MARKER} (wakeup every {interval}s, Ctrl+C or Stop to quit)", flush=True)
+    if on_start:
+        on_start()
     while not (stop_event and stop_event.is_set()):
         if stop_event:
             if stop_event.wait(interval):
@@ -65,6 +69,7 @@ def main(**kwargs):
     fmt = kwargs.pop("format", "png")
     loop = kwargs.pop("loop", False)
     keep_alive = kwargs.pop("keep_alive", False)
+    on_keepalive = kwargs.pop("on_keepalive", None)
     stop_event = kwargs.pop("stop_event", None)
     screensaver = kwargs.pop("screensaver", None)
     screensaver_quality = int(kwargs.pop("screensaver_quality", 60))
@@ -226,7 +231,7 @@ def main(**kwargs):
                 if success:
                     print("✅ MP4 sent successfully!")
                     if keepalive_interval:
-                        _keep_alive(ctrl, keepalive_interval, stop_event)
+                        _keep_alive(ctrl, keepalive_interval, stop_event, on_keepalive)
                 else:
                     print("❌ Failed to send MP4")
                     sys.exit(1)
@@ -264,7 +269,7 @@ def main(**kwargs):
                         if success:
                             print("✅ MP4 sent successfully!")
                             if keepalive_interval:
-                                _keep_alive(ctrl, keepalive_interval, stop_event)
+                                _keep_alive(ctrl, keepalive_interval, stop_event, on_keepalive)
                         else:
                             print("❌ Failed to send MP4")
                             sys.exit(1)
@@ -324,7 +329,7 @@ def main(**kwargs):
                 if success:
                     print("✅ Image sent successfully!", flush=True)
                     if keepalive_interval:
-                        _keep_alive(ctrl, keepalive_interval, stop_event)
+                        _keep_alive(ctrl, keepalive_interval, stop_event, on_keepalive)
                 else:
                     print("❌ Failed to send image")
                     sys.exit(1)
