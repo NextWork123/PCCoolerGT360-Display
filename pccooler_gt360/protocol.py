@@ -52,6 +52,23 @@ def build_packet(verb: str, seq: int, body: bytes, verbose: bool = False) -> byt
     return packet
 
 
+def _split_frames(raw: bytes) -> list[bytes]:
+    """Split raw bytes into framed packets (0x5A | len16 | payload | csum | 0x5A).
+
+    Some models (e.g. DC360) answer a single command with several back-to-back
+    frames. Returns [] if raw doesn't start with a well-formed frame.
+    """
+    frames = []
+    i = 0
+    while i + 3 <= len(raw) and raw[i] == PACKET_START:
+        length = struct.unpack(">H", raw[i + 1:i + 3])[0]
+        if length < 5 or i + length > len(raw) or raw[i + length - 1] != PACKET_END:
+            break
+        frames.append(raw[i:i + length])
+        i += length
+    return frames
+
+
 def _parse_ack_response(raw: bytes, verbose: bool = False) -> dict:
     """Parse raw ACK response bytes into dict."""
     if not raw:
@@ -59,6 +76,16 @@ def _parse_ack_response(raw: bytes, verbose: bool = False) -> dict:
 
     if verbose:
         log_message(f"Raw ACK ({len(raw)}B): {raw.hex()}", "DEBUG", verbose)
+
+    frames = _split_frames(raw)
+    if len(frames) > 1:
+        # Prefer a frame carrying a JSON body, otherwise the first successful one
+        results = [_parse_ack_response(f, verbose) for f in frames]
+        results = [r for r in results if r]
+        for r in results:
+            if 'raw' not in r:
+                return r
+        return results[0] if results else {}
 
     text = raw.decode('ascii', errors='replace')
 

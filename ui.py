@@ -92,7 +92,7 @@ class Api:
             "recovery": options.get("recovery", False),
             "init": options.get("init", False),
             "reset": options.get("reset", False),
-            "resolution": options.get("resolution", "640x480"),
+            "resolution": options.get("resolution", "auto"),
             "format": options.get("format", "png"),
             "loop": options.get("loop", False),
             "chunk_delay": float(options.get("chunk_delay", 0.001)),
@@ -841,8 +841,10 @@ HTML = '''<!DOCTYPE html>
           <div class="setting-desc">Display output size</div>
         </div>
         <select class="select" id="resolution">
-          <option value="640x480">640×480</option>
+          <option value="auto">Auto (detect model)</option>
+          <option value="640x480">640×480 (GT360)</option>
           <option value="480x320">480×320</option>
+          <option value="240x320">240×320 (DC360)</option>
         </select>
       </div>
       
@@ -1307,7 +1309,7 @@ HTML = '''<!DOCTYPE html>
         screensaver_quality: currentSource === 'screensaver' ? (ssQuality ? parseInt(ssQuality.value) : 60) : 60,
         screensaver_scale: currentSource === 'screensaver' ? (ssScale ? parseFloat(ssScale.value) : 1) : 1,
         screensaver_fps: currentSource === 'screensaver' ? (ssFps ? parseFloat(ssFps.value) : 30) : 30,
-        resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : '640x480',
+        resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : 'auto',
         format: document.getElementById('format') ? document.getElementById('format').value : 'png',
         loop: document.getElementById('loop') ? document.getElementById('loop').checked : false,
         chunk_delay: chunkDelay === 0 ? 0 : chunkDelay / 1000,

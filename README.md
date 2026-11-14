@@ -1,6 +1,6 @@
 # PCCoolerGT360-Display
 
-USB display controller for PCCooler GT360 AIO liquid cooler (3.5" IPS LCD). Send images, test patterns, system info, and control wake/sleep/recovery via USB CDC ACM serial.
+USB display controller for PCCooler AIO liquid coolers with LCD: GT360 (3.5" IPS LCD) and DC360 (2.4" IPS LCD). Send images, test patterns, system info, and control wake/sleep/recovery via USB CDC ACM serial.
 
 ## Features
 
@@ -12,6 +12,34 @@ USB display controller for PCCooler GT360 AIO liquid cooler (3.5" IPS LCD). Send
 - ⚡ **Device Control** — Wakeup, Sleep, Recovery, Init, Reset commands
 - 🌓 **Modern UI** — Windows 11 Fluent Design with light/dark theme support
 - 🚀 **Async Support** — Native asyncio support for non-blocking operations
+
+## Supported Models
+
+| Model | USB VID:PID | Screen | Resolution |
+|-------|-------------|--------|------------|
+| PCCooler GT360 | `1d6b:011e` | 3.5" IPS | 640x480 |
+| PCCooler DC360 | `1d6b:0112` | 2.4" IPS | 240x320 (portrait) |
+
+Both models share the same protocol. The model is detected automatically from the
+USB VID/PID (read from sysfs on Linux) and the resolution defaults to `auto`, which
+picks the right size for the connected model. You can still force one with
+`--resolution 640x480|480x320|240x320`.
+
+### Linux permissions
+
+The display shows up as `/dev/ttyACM*`, owned by the `uucp` (Arch) or `dialout`
+(Debian/Ubuntu) group. Add your user to that group and log in again:
+
+```bash
+sudo usermod -aG uucp $USER      # Arch
+sudo usermod -aG dialout $USER   # Debian/Ubuntu
+```
+
+Or install a udev rule (`/etc/udev/rules.d/70-pccooler-display.rules`):
+
+```
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="011e|0112", TAG+="uaccess"
+```
 
 ## Install
 

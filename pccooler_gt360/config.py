@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List
 
+from .constants import RESOLUTION_CHOICES
+
 
 @dataclass
 class DisplayConfig:
@@ -23,7 +25,7 @@ class DisplayConfig:
     
     def validate(self) -> None:
         """Validate display settings."""
-        if self.resolution not in ("640x480", "480x320"):
+        if self.resolution not in RESOLUTION_CHOICES:
             raise ValueError(f"Invalid resolution: {self.resolution}")
         if not 0 <= self.brightness <= 100:
             raise ValueError(f"Brightness must be 0-100: {self.brightness}")
@@ -119,7 +121,7 @@ class Config:
         """Create configuration from environment variables.
         
         Environment variables:
-            PCCOOLER_RESOLUTION - Display resolution (640x480 or 480x320)
+            PCCOOLER_RESOLUTION - Display resolution (auto, 640x480, 480x320 or 240x320)
             PCCOOLER_BRIGHTNESS - Default brightness (0-100)
             PCCOOLER_CHUNK_DELAY - Transfer chunk delay in seconds
             PCCOOLER_VERBOSE - Enable verbose logging (1/true/yes)

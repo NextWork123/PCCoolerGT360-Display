@@ -9,7 +9,8 @@ from datetime import datetime
 
 from .controller import DisplayController
 from .image_processor import ImageProcessor, PIL_AVAILABLE
-from .constants import DISPLAY_MODES
+from .constants import DISPLAY_MODES, RESOLUTION_CHOICES, AUTO_RESOLUTION
+from .device import resolve_resolution
 from .device import WIREIO_AVAILABLE as USB_AVAILABLE
 
 
@@ -68,8 +69,9 @@ Examples:
                        help='Probe device to find correct orientation protocol')
     
     # Display options
-    parser.add_argument('--resolution', '-r', default='640x480', choices=['640x480', '480x320'],
-                       help='Display resolution (default: 640x480)')
+    parser.add_argument('--resolution', '-r', default=AUTO_RESOLUTION, choices=RESOLUTION_CHOICES,
+                       help='Display resolution (default: auto-detect from model; '
+                            'GT360=640x480, DC360=240x320)')
     parser.add_argument('--format', '-f', default='png', choices=['jpeg', 'png', 'bmp', 'gif', 'mp4'],
                        help='Image encoding format (default: png)')
 
@@ -166,7 +168,7 @@ Examples:
             
             # Handle image display
             if args.image or args.pattern or args.system:
-                width, height = DISPLAY_MODES[args.resolution]
+                width, height = DISPLAY_MODES[resolve_resolution(args.resolution, args.verbose)]
                 
                 # Handle MP4 video files first (send directly)
                 if args.image and args.image.lower().endswith('.mp4'):

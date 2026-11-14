@@ -7,6 +7,8 @@ import argparse
 from datetime import datetime
 
 from pccooler_gt360 import DisplayController, ImageProcessor, ScreensaverGenerator, DISPLAY_MODES
+from pccooler_gt360.constants import RESOLUTION_CHOICES, AUTO_RESOLUTION
+from pccooler_gt360.device import resolve_resolution
 
 try:
     from pccooler_gt360.image_processor import FFMPEG_AVAILABLE
@@ -18,7 +20,7 @@ def main(**kwargs):
     verbose = kwargs.pop("verbose", False)
     reset = kwargs.pop("reset", False)
     max_retries = kwargs.pop("max_retries", 10)
-    resolution = kwargs.pop("resolution", "640x480")
+    resolution = kwargs.pop("resolution", AUTO_RESOLUTION)
     chunk_delay = kwargs.pop("chunk_delay", 0.001)
     image = kwargs.pop("image", None)
     pattern = kwargs.pop("pattern", None)
@@ -38,7 +40,7 @@ def main(**kwargs):
     screensaver_scale = float(kwargs.pop("screensaver_scale", 1.0))
     screensaver_fps = float(kwargs.pop("screensaver_fps", 30))
 
-    width, height = DISPLAY_MODES[resolution]
+    width, height = DISPLAY_MODES[resolve_resolution(resolution, verbose)]
 
     with DisplayController(verbose=verbose) as ctrl:
         if reset:
@@ -359,7 +361,8 @@ def parse_args():
                    choices=[0, 90, 180, 270],
                    help="Set display orientation (0/90/180/270)")
     # Display
-    p.add_argument("--resolution", "-r", default="640x480", choices=["640x480", "480x320"], help="Resolution")
+    p.add_argument("--resolution", "-r", default=AUTO_RESOLUTION, choices=RESOLUTION_CHOICES,
+                   help="Resolution (default: auto-detect from model)")
     p.add_argument("--format", "-f", default="png", choices=["jpeg", "png", "bmp", "gif", "mp4"], help="Encode format")
     p.add_argument("--loop", "-l", action="store_true", help="Continuously upload (~1s interval)")
     p.add_argument("--delay", "-d", type=float, default=0.001, dest="chunk_delay", help="Chunk delay (s)")
