@@ -25,6 +25,21 @@ USB VID/PID (read from sysfs on Linux) and the resolution defaults to `auto`, wh
 picks the right size for the connected model. You can still force one with
 `--resolution 640x480|480x320|240x320`.
 
+### Keeping the display on
+
+The display turns itself off ~60 s after the last command it receives (`"timeout": 60`
+in the `POST conn` response). To keep it on, send a `WAKEUP` periodically; there is no
+need to re-upload the image. Use `--keep-alive` (`-k`) with `example.py`, or the
+**Keep display on** toggle in the GUI (enabled by default):
+
+```bash
+python example.py --image wallpaper.png --keep-alive
+```
+
+> ⚠️ **Do not use `--recovery` / `--init` (or the Recovery/Init buttons) casually.**
+> On the DC360 the `POST recovery` command reboots the display into the SoC's firmware
+> download mode (`33c3:6677 ArtInChip USB download gadget`) before it boots back normally.
+
 ### Linux permissions
 
 The display shows up as `/dev/ttyACM*`, owned by the `uucp` (Arch) or `dialout`

@@ -69,6 +69,17 @@ class Api:
     def set_window(self, window):
         self._window = window
 
+    def get_model(self):
+        """Return the connected display model name (e.g. 'PCCooler DC360 · 240x320')."""
+        try:
+            from pccooler_gt360.device import detect_model
+            model = detect_model()
+        except Exception:
+            model = None
+        if model:
+            return f"PCCooler {model['name']} · {model['resolution']}"
+        return "No PCCooler display detected"
+
     def run(self, options):
         global stop_event, worker_thread
         
@@ -95,6 +106,7 @@ class Api:
             "resolution": options.get("resolution", "auto"),
             "format": options.get("format", "png"),
             "loop": options.get("loop", False),
+            "keep_alive": options.get("keep_alive", True),
             "chunk_delay": float(options.get("chunk_delay", 0.001)),
             "max_retries": int(options.get("max_retries", 10)),
             "verbose": False,
@@ -166,7 +178,7 @@ HTML = '''<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PCCooler GT360</title>
+  <title>PCCooler Display</title>
   <style>
     /* ========================================
        Windows 11 Fluent Design System
@@ -869,6 +881,14 @@ HTML = '''<!DOCTYPE html>
         </div>
         <input type="checkbox" class="toggle" id="loop">
       </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Keep display on</div>
+          <div class="setting-desc">Wake the display every 50 s so it doesn't turn off (until Stop)</div>
+        </div>
+        <input type="checkbox" class="toggle" id="keep-alive" checked>
+      </div>
       
       <div class="setting-row">
         <div class="setting-info">
@@ -945,11 +965,11 @@ HTML = '''<!DOCTYPE html>
           <span class="icon">🌙</span>
           <span class="label">Sleep</span>
         </button>
-        <button class="action-btn ctrl-btn" data-action="recovery">
+        <button class="action-btn ctrl-btn" data-action="recovery" title="Puts the device in firmware download mode (it reboots). Avoid unless you know what you are doing.">
           <span class="icon">🔧</span>
           <span class="label">Recovery</span>
         </button>
-        <button class="action-btn ctrl-btn" data-action="init">
+        <button class="action-btn ctrl-btn" data-action="init" title="Init includes Recovery: the device may reboot into firmware download mode.">
           <span class="icon">🚀</span>
           <span class="label">Init</span>
         </button>
@@ -977,10 +997,20 @@ HTML = '''<!DOCTYPE html>
   <div class="status-bar">
     <span class="status-dot" id="status-dot"></span>
     <span id="status-text">Ready</span>
-    <span style="margin-left: auto;">PCCooler GT360</span>
+    <span style="margin-left: auto;" id="device-model">PCCooler Display</span>
   </div>
 
   <script>
+    window.addEventListener('pywebviewready', function() {
+      function refreshModel() {
+        window.pywebview.api.get_model().then(function(name) {
+          var el = document.getElementById('device-model');
+          if (el) el.textContent = name;
+        });
+      }
+      refreshModel();
+      setInterval(refreshModel, 5000);
+    });
     // State
     var selectedPattern = 'blue';
     var currentSource = 'image';
@@ -1312,6 +1342,7 @@ HTML = '''<!DOCTYPE html>
         resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : 'auto',
         format: document.getElementById('format') ? document.getElementById('format').value : 'png',
         loop: document.getElementById('loop') ? document.getElementById('loop').checked : false,
+        keep_alive: document.getElementById('keep-alive') ? document.getElementById('keep-alive').checked : true,
         chunk_delay: chunkDelay === 0 ? 0 : chunkDelay / 1000,
         max_retries: document.getElementById('max-retries') ? document.getElementById('max-retries').value : 10,
         timeout: document.getElementById('timeout') ? (document.getElementById('timeout').value || null) : null,
@@ -1361,6 +1392,11 @@ HTML = '''<!DOCTYPE html>
         
         var action = this.getAttribute('data-action');
         if (!action) return;
+        if ((action === 'recovery' || action === 'init') &&
+            !window.confirm('Warning: "' + action + '" sends the RECOVERY command, which reboots the display ' +
+                            'into firmware download mode (seen on DC360). Continue?')) {
+          return;
+        }
         
         var extra = {};
         extra[action] = true;
@@ -1419,7 +1455,7 @@ def main():
         sys.exit(1)
     try:
         api = Api()
-        window = webview.create_window("PCCooler GT360", html=HTML, width=720, height=900, js_api=api)
+        window = webview.create_window("PCCooler Display", html=HTML, width=720, height=900, js_api=api)
         api.set_window(window)
         if sys.platform == "linux":
             webview.start(gui="qt")

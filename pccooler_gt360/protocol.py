@@ -192,6 +192,35 @@ async def read_ack_async(device: "AsyncSerialDevice", timeout: int = 2000, verbo
     return {}
 
 
+def _drain_input(device: "SerialDevice", verbose: bool = False) -> None:
+    """Discard stale bytes left in the input buffer (e.g. a late 2nd ACK frame).
+
+    Some models (DC360) answer a command with several frames; if a trailing frame
+    arrives after we stopped reading, it would be taken as the ACK of the next
+    command and desync the whole transfer.
+    """
+    stale = b""
+    for _ in range(64):
+        chunk = device.read(4096, timeout=10)
+        if not chunk:
+            break
+        stale += chunk
+    if stale:
+        log_message(f"Discarded {len(stale)} stale bytes: {stale[:64].hex()}", "DEBUG", verbose)
+
+
+async def _drain_input_async(device: "AsyncSerialDevice", verbose: bool = False) -> None:
+    """Async version of _drain_input."""
+    stale = b""
+    for _ in range(64):
+        chunk = await device.read(4096, timeout=10)
+        if not chunk:
+            break
+        stale += chunk
+    if stale:
+        log_message(f"Discarded {len(stale)} stale bytes: {stale[:64].hex()}", "DEBUG", verbose)
+
+
 def send_command(
     device: "SerialDevice",
     verb: str,
@@ -213,6 +242,7 @@ def send_command(
         log_message(f"→ {desc}: {body}" + (f" (retry {attempt})" if attempt > 0 else ""),
                     "INFO" if verbose else "DEBUG", verbose)
         try:
+            _drain_input(device, verbose)
             start_write = time.time()
             device.write(pkt, timeout=5000)
             write_duration = (time.time() - start_write) * 1000
@@ -253,6 +283,7 @@ async def send_command_async(
         log_message(f"→ {desc}: {body}" + (f" (retry {attempt})" if attempt > 0 else ""),
                     "INFO" if verbose else "DEBUG", verbose)
         try:
+            await _drain_input_async(device, verbose)
             start_write = asyncio.get_event_loop().time()
             await device.write(pkt, timeout=5000)
             write_duration = (asyncio.get_event_loop().time() - start_write) * 1000

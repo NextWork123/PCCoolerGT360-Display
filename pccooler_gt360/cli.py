@@ -57,9 +57,9 @@ Examples:
     # Control commands
     parser.add_argument('--wakeup', '-w', action='store_true', help='Wakeup the display')
     parser.add_argument('--sleep', action='store_true', help='Put display to sleep')
-    parser.add_argument('--recovery', action='store_true', help='Enable recovery mode')
+    parser.add_argument('--recovery', action='store_true', help='Enable recovery mode. WARNING: reboots the display into firmware download mode (seen on DC360)')
     parser.add_argument('--timeout', type=int, metavar='SEC', help='Set display timeout in seconds (0=disable?)')
-    parser.add_argument('--init', action='store_true', help='Send initialization sequence (conn + timeout + recovery)')
+    parser.add_argument('--init', action='store_true', help='Send initialization sequence (conn + timeout + recovery). WARNING: includes recovery, see above')
     parser.add_argument('--brightness', '-b', type=int, metavar='0-100',
                        help='Set display brightness (0-100)')
     parser.add_argument('--orientation', '-o', type=int, metavar='ANGLE',

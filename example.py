@@ -16,6 +16,36 @@ except ImportError:
     FFMPEG_AVAILABLE = False
 
 
+KEEPALIVE_INTERVAL = 50  # seconds; displays turn off ~60 s after the last command
+
+
+def _keepalive_interval(timeout, keep_alive):
+    """Seconds between keep-alive pings, or None if keep-alive is disabled."""
+    if timeout is not None and timeout > 5:
+        return timeout - 5
+    if keep_alive:
+        return KEEPALIVE_INTERVAL
+    return None
+
+
+def _keep_alive(ctrl, interval, stop_event=None):
+    """Keep the display on by sending WAKEUP periodically until stopped.
+
+    A WAKEUP is enough to reset the display's idle timeout (tested on DC360);
+    there is no need to re-upload the media, which avoids writes to the
+    device storage.
+    """
+    print(f"🔄 Keep-alive enabled (wakeup every {interval}s, Ctrl+C or Stop to quit)", flush=True)
+    while not (stop_event and stop_event.is_set()):
+        if stop_event:
+            if stop_event.wait(interval):
+                break
+        else:
+            time.sleep(interval)
+        if not ctrl.wakeup():
+            print("⚠️ Keep-alive wakeup failed", flush=True)
+
+
 def main(**kwargs):
     verbose = kwargs.pop("verbose", False)
     reset = kwargs.pop("reset", False)
@@ -34,6 +64,7 @@ def main(**kwargs):
     orientation = kwargs.pop("orientation", None)
     fmt = kwargs.pop("format", "png")
     loop = kwargs.pop("loop", False)
+    keep_alive = kwargs.pop("keep_alive", False)
     stop_event = kwargs.pop("stop_event", None)
     screensaver = kwargs.pop("screensaver", None)
     screensaver_quality = int(kwargs.pop("screensaver_quality", 60))
@@ -41,6 +72,7 @@ def main(**kwargs):
     screensaver_fps = float(kwargs.pop("screensaver_fps", 30))
 
     width, height = DISPLAY_MODES[resolve_resolution(resolution, verbose)]
+    keepalive_interval = _keepalive_interval(timeout, keep_alive)
 
     with DisplayController(verbose=verbose) as ctrl:
         if reset:
@@ -89,6 +121,9 @@ def main(**kwargs):
 
         # Screensaver: generate animated frames and upload in a tight loop
         if screensaver:
+            if not wakeup and not sleep:
+                ctrl.wakeup()
+                time.sleep(0.3)
             import io as _io
             if screensaver_scale < 1.0 and screensaver_scale > 0:
                 from PIL import Image as _PIL
@@ -170,6 +205,12 @@ def main(**kwargs):
             print(f"DEBUG: brightness={brightness}, orientation={orientation}")
         
         if has_media:
+            # Sending media implies the user wants to see it: wake the display
+            # first (it may be suspended), unless wakeup/sleep was requested explicitly.
+            if not wakeup and not sleep:
+                ctrl.wakeup()
+                time.sleep(0.3)
+
             # MP4: send raw
             if image and image.lower().endswith(".mp4"):
                 with open(image, "rb") as f:
@@ -184,18 +225,11 @@ def main(**kwargs):
                 success = send_mp4()
                 if success:
                     print("✅ MP4 sent successfully!")
-                    if timeout is not None and timeout > 5:
-                        interval = timeout - 5
-                        print(f"🔄 Keep-alive enabled (every {interval}s)")
-                        while not (stop_event and stop_event.is_set()):
-                            if stop_event:
-                                if stop_event.wait(interval):
-                                    break
-                            else:
-                                time.sleep(interval)
-                            send_mp4()
+                    if keepalive_interval:
+                        _keep_alive(ctrl, keepalive_interval, stop_event)
                 else:
                     print("❌ Failed to send MP4")
+                    sys.exit(1)
                 return
 
             # Build image
@@ -229,18 +263,11 @@ def main(**kwargs):
                         success = send_mp4()
                         if success:
                             print("✅ MP4 sent successfully!")
-                            if timeout is not None and timeout > 5:
-                                interval = timeout - 5
-                                print(f"🔄 Keep-alive enabled (every {interval}s)")
-                                while not (stop_event and stop_event.is_set()):
-                                    if stop_event:
-                                        if stop_event.wait(interval):
-                                            break
-                                    else:
-                                        time.sleep(interval)
-                                    send_mp4()
+                            if keepalive_interval:
+                                _keep_alive(ctrl, keepalive_interval, stop_event)
                         else:
                             print("❌ Failed to send MP4")
+                            sys.exit(1)
                         return
                     except Exception as e:
                         print(f"⚠️ GIF conversion failed: {e}")
@@ -295,17 +322,9 @@ def main(**kwargs):
                 print(f"📊 {fmt.upper()} size: {len(image_data)} bytes")
                 success = send_media()
                 if success:
-                    print("✅ Image sent successfully!")
-                    if timeout is not None and timeout > 5:
-                        interval = timeout - 5
-                        print(f"🔄 Keep-alive enabled (every {interval}s)")
-                        while not (stop_event and stop_event.is_set()):
-                            if stop_event:
-                                if stop_event.wait(interval):
-                                    break
-                            else:
-                                time.sleep(interval)
-                            send_media()
+                    print("✅ Image sent successfully!", flush=True)
+                    if keepalive_interval:
+                        _keep_alive(ctrl, keepalive_interval, stop_event)
                 else:
                     print("❌ Failed to send image")
                     sys.exit(1)
@@ -351,9 +370,9 @@ def parse_args():
     # Control
     p.add_argument("--wakeup", "-w", action="store_true", help="Wakeup display")
     p.add_argument("--sleep", action="store_true", help="Put display to sleep")
-    p.add_argument("--recovery", action="store_true", help="Enable recovery mode")
+    p.add_argument("--recovery", action="store_true", help="Enable recovery mode. WARNING: reboots the display into firmware download mode (seen on DC360)")
     p.add_argument("--timeout", type=int, metavar="SEC", help="Display timeout in seconds")
-    p.add_argument("--init", action="store_true", help="Init sequence (conn + timeout + recovery + wakeup)")
+    p.add_argument("--init", action="store_true", help="Init sequence (conn + timeout + recovery + wakeup). WARNING: includes recovery")
     p.add_argument("--reset", action="store_true", help="Reset USB device before open")
     p.add_argument("--brightness", "-b", type=int, metavar="0-100",
                    help="Set display brightness (0-100)")
@@ -365,6 +384,8 @@ def parse_args():
                    help="Resolution (default: auto-detect from model)")
     p.add_argument("--format", "-f", default="png", choices=["jpeg", "png", "bmp", "gif", "mp4"], help="Encode format")
     p.add_argument("--loop", "-l", action="store_true", help="Continuously upload (~1s interval)")
+    p.add_argument("--keep-alive", "-k", action="store_true", dest="keep_alive",
+                   help=f"Keep the display on after sending (wakeup every {KEEPALIVE_INTERVAL}s)")
     p.add_argument("--delay", "-d", type=float, default=0.001, dest="chunk_delay", help="Chunk delay (s)")
     p.add_argument("--max-retries", type=int, default=10, dest="max_retries", help="Open device retries")
     p.add_argument("--fps", type=float, default=30, dest="screensaver_fps",
@@ -395,6 +416,7 @@ if __name__ == "__main__":
         "orientation": args.orientation,
         "format": args.format,
         "loop": args.loop,
+        "keep_alive": args.keep_alive,
         "screensaver_fps": args.screensaver_fps,
     }
     main(**kwargs)
