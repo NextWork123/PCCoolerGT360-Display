@@ -10,11 +10,12 @@ if sys.platform == "linux":
     # Force pywebview to use PyQt6 (PyQt5 may be missing QtWebChannel on some systems)
     os.environ.setdefault("QT_API", "pyqt6")
 
+import atexit
 import json
 import subprocess
 import threading
 import webview
-from example import main as example_main
+from example import main as example_main, KEEPALIVE_MARKER
 
 # Global stop event for keep-alive and loops
 stop_event = threading.Event()
@@ -22,45 +23,80 @@ worker_thread = None
 # Current privileged helper process (Unix); stop() terminates it
 _helper_process = None
 
-def _run_privileged_helper(kwargs_serializable, stop_event):
-    """Run example_main in a privileged subprocess (Unix). Returns (success, message)."""
+def _run_privileged_helper(kwargs_serializable, stop_event, on_line=None):
+    """Run example_main in a privileged subprocess (Unix). Returns (success, message).
+
+    on_line(line) is called for every stdout line as it is produced, so the UI
+    can react while the helper keeps running (e.g. during keep-alive).
+    """
     global _helper_process
     project_dir = os.path.dirname(os.path.abspath(__file__))
     helper_path = os.path.join(project_dir, "privileged_helper.py")
     sudo_cmd = os.environ.get("PCCOOLER_SUDO", "sudo")
-    cmd = [sudo_cmd, sys.executable, helper_path]
+    cmd = [sudo_cmd, sys.executable, "-u", helper_path]
+    proc = None
+    reader = None
     try:
-        _helper_process = subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=project_dir,
         )
-        _helper_process.stdin.write(json.dumps(kwargs_serializable).encode("utf-8"))
-        _helper_process.stdin.close()
+        _helper_process = proc
+        proc.stdin.write(json.dumps(kwargs_serializable).encode("utf-8"))
+        proc.stdin.close()
+
+        def read_stdout():
+            for raw in proc.stdout:
+                if on_line:
+                    try:
+                        on_line(raw.decode("utf-8", errors="replace").rstrip("\n"))
+                    except Exception:
+                        pass
+
+        reader = threading.Thread(target=read_stdout, daemon=True)
+        reader.start()
+
         while True:
-            if _helper_process.poll() is not None:
-                returncode = _helper_process.returncode
+            if proc.poll() is not None:
+                returncode = proc.returncode
                 break
             if stop_event.is_set():
-                _helper_process.terminate()
+                proc.terminate()
                 try:
-                    _helper_process.wait(timeout=5)
+                    proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    _helper_process.kill()
+                    proc.kill()
                 return True, "Stopped"
             stop_event.wait(timeout=0.5)
-        out = _helper_process.stdout.read() if _helper_process.stdout else b""
-        err = _helper_process.stderr.read() if _helper_process.stderr else b""
+        reader.join(timeout=2)
+        err = proc.stderr.read() if proc.stderr else b""
     except Exception as e:
         return False, str(e)
     finally:
-        _helper_process = None
+        if _helper_process is proc:
+            _helper_process = None
     err_text = err.decode("utf-8", errors="replace").strip() if err else ""
     if returncode != 0:
         return False, err_text or f"Exit code {returncode}"
     return True, "Done"
+
+def _shutdown_helper():
+    """Stop any running worker/helper (e.g. keep-alive) when the UI closes."""
+    stop_event.set()
+    proc = _helper_process
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+atexit.register(_shutdown_helper)
+
 
 class Api:
     def __init__(self):
@@ -68,6 +104,17 @@ class Api:
 
     def set_window(self, window):
         self._window = window
+
+    def get_model(self):
+        """Return the connected display model name (e.g. 'PCCooler DC360 · 240x320')."""
+        try:
+            from pccooler_gt360.device import detect_model
+            model = detect_model()
+        except Exception:
+            model = None
+        if model:
+            return f"PCCooler {model['name']} · {model['resolution']}"
+        return "No PCCooler display detected"
 
     def run(self, options):
         global stop_event, worker_thread
@@ -92,9 +139,10 @@ class Api:
             "recovery": options.get("recovery", False),
             "init": options.get("init", False),
             "reset": options.get("reset", False),
-            "resolution": options.get("resolution", "640x480"),
+            "resolution": options.get("resolution", "auto"),
             "format": options.get("format", "png"),
             "loop": options.get("loop", False),
+            "keep_alive": options.get("keep_alive", True),
             "chunk_delay": float(options.get("chunk_delay", 0.001)),
             "max_retries": int(options.get("max_retries", 10)),
             "verbose": False,
@@ -114,32 +162,48 @@ class Api:
         else:
             kwargs["timeout"] = None
 
+        my_stop = stop_event
+        keepalive_reported = threading.Event()
+
+        def js(code):
+            if self._window:
+                self._window.evaluate_js(code)
+
+        def js_str(msg):
+            return str(msg).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+        def report(ok, msg):
+            # A worker stopped by Stop or by a newer Send must not touch the UI
+            # (Stop reports itself; a newer Send owns the status now).
+            if my_stop.is_set():
+                return
+            js(f'window.__runComplete({"true" if ok else "false"}, "{js_str(msg)}")')
+
+        def on_keepalive():
+            if not keepalive_reported.is_set() and not my_stop.is_set():
+                keepalive_reported.set()
+                js('window.__keepAlive("Sent · keeping display on (Stop to release)")')
+
+        def on_line(line):
+            if KEEPALIVE_MARKER in line:
+                on_keepalive()
+
         def worker():
             use_helper = hasattr(os, "geteuid") and sys.platform != "win32"
-            if use_helper:
-                # Run USB operations in a privileged subprocess (sudo)
-                kwargs_serializable = {k: v for k, v in kwargs.items() if k != "stop_event"}
-                try:
-                    ok, msg = _run_privileged_helper(kwargs_serializable, stop_event)
-                    if self._window:
-                        # Escape for JS double-quoted string: \ " and newlines
-                        safe_msg = msg.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete({"true" if ok else "false"}, "{safe_msg}")')
-                except Exception as e:
-                    print(f"Error in worker: {e}")
-                    if self._window:
-                        msg = str(e).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete(false, "{msg}")')
-            else:
-                try:
-                    example_main(**kwargs)
-                    if self._window:
-                        self._window.evaluate_js('window.__runComplete(true, "Done")')
-                except Exception as e:
-                    print(f"Error in worker: {e}")
-                    if self._window:
-                        msg = str(e).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
-                        self._window.evaluate_js(f'window.__runComplete(false, "{msg}")')
+            try:
+                if use_helper:
+                    # Run USB operations in a subprocess (sudo by default, see PCCOOLER_SUDO)
+                    kwargs_serializable = {k: v for k, v in kwargs.items() if k != "stop_event"}
+                    ok, msg = _run_privileged_helper(kwargs_serializable, my_stop, on_line)
+                else:
+                    example_main(**kwargs, on_keepalive=on_keepalive)
+                    ok, msg = True, "Done"
+                report(ok, msg)
+            except SystemExit as e:
+                report(e.code in (0, None), "Done" if e.code in (0, None) else f"Exit code {e.code}")
+            except Exception as e:
+                print(f"Error in worker: {e}")
+                report(False, e)
 
         worker_thread = threading.Thread(target=worker, daemon=True)
         worker_thread.start()
@@ -166,7 +230,7 @@ HTML = '''<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PCCooler GT360</title>
+  <title>PCCooler Display</title>
   <style>
     /* ========================================
        Windows 11 Fluent Design System
@@ -841,8 +905,10 @@ HTML = '''<!DOCTYPE html>
           <div class="setting-desc">Display output size</div>
         </div>
         <select class="select" id="resolution">
-          <option value="640x480">640×480</option>
+          <option value="auto">Auto (detect model)</option>
+          <option value="640x480">640×480 (GT360)</option>
           <option value="480x320">480×320</option>
+          <option value="240x320">240×320 (DC360)</option>
         </select>
       </div>
       
@@ -866,6 +932,14 @@ HTML = '''<!DOCTYPE html>
           <div class="setting-desc">Continuously send images</div>
         </div>
         <input type="checkbox" class="toggle" id="loop">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Keep display on</div>
+          <div class="setting-desc">Wake the display every 50 s so it doesn't turn off (until Stop)</div>
+        </div>
+        <input type="checkbox" class="toggle" id="keep-alive" checked>
       </div>
       
       <div class="setting-row">
@@ -943,11 +1017,11 @@ HTML = '''<!DOCTYPE html>
           <span class="icon">🌙</span>
           <span class="label">Sleep</span>
         </button>
-        <button class="action-btn ctrl-btn" data-action="recovery">
+        <button class="action-btn ctrl-btn" data-action="recovery" title="Puts the device in firmware download mode (it reboots). Avoid unless you know what you are doing.">
           <span class="icon">🔧</span>
           <span class="label">Recovery</span>
         </button>
-        <button class="action-btn ctrl-btn" data-action="init">
+        <button class="action-btn ctrl-btn" data-action="init" title="Init includes Recovery: the device may reboot into firmware download mode.">
           <span class="icon">🚀</span>
           <span class="label">Init</span>
         </button>
@@ -975,10 +1049,20 @@ HTML = '''<!DOCTYPE html>
   <div class="status-bar">
     <span class="status-dot" id="status-dot"></span>
     <span id="status-text">Ready</span>
-    <span style="margin-left: auto;">PCCooler GT360</span>
+    <span style="margin-left: auto;" id="device-model">PCCooler Display</span>
   </div>
 
   <script>
+    window.addEventListener('pywebviewready', function() {
+      function refreshModel() {
+        window.pywebview.api.get_model().then(function(name) {
+          var el = document.getElementById('device-model');
+          if (el) el.textContent = name;
+        });
+      }
+      refreshModel();
+      setInterval(refreshModel, 5000);
+    });
     // State
     var selectedPattern = 'blue';
     var currentSource = 'image';
@@ -1294,6 +1378,13 @@ HTML = '''<!DOCTYPE html>
       setBusy(false);
       showInfoBar(message, ok ? 'success' : 'error');
     };
+
+    // Media sent; helper keeps running in background only to keep the display on
+    window.__keepAlive = function(message) {
+      setBusy(false);
+      if (statusText) statusText.textContent = 'Keeping display on';
+      showInfoBar(message, 'success');
+    };
     
     // Get Options
     window.getOptions = function(extra) {
@@ -1307,9 +1398,10 @@ HTML = '''<!DOCTYPE html>
         screensaver_quality: currentSource === 'screensaver' ? (ssQuality ? parseInt(ssQuality.value) : 60) : 60,
         screensaver_scale: currentSource === 'screensaver' ? (ssScale ? parseFloat(ssScale.value) : 1) : 1,
         screensaver_fps: currentSource === 'screensaver' ? (ssFps ? parseFloat(ssFps.value) : 30) : 30,
-        resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : '640x480',
+        resolution: document.getElementById('resolution') ? document.getElementById('resolution').value : 'auto',
         format: document.getElementById('format') ? document.getElementById('format').value : 'png',
         loop: document.getElementById('loop') ? document.getElementById('loop').checked : false,
+        keep_alive: document.getElementById('keep-alive') ? document.getElementById('keep-alive').checked : true,
         chunk_delay: chunkDelay === 0 ? 0 : chunkDelay / 1000,
         max_retries: document.getElementById('max-retries') ? document.getElementById('max-retries').value : 10,
         timeout: document.getElementById('timeout') ? (document.getElementById('timeout').value || null) : null,
@@ -1359,6 +1451,11 @@ HTML = '''<!DOCTYPE html>
         
         var action = this.getAttribute('data-action');
         if (!action) return;
+        if ((action === 'recovery' || action === 'init') &&
+            !window.confirm('Warning: "' + action + '" sends the RECOVERY command, which reboots the display ' +
+                            'into firmware download mode (seen on DC360). Continue?')) {
+          return;
+        }
         
         var extra = {};
         extra[action] = true;
@@ -1417,8 +1514,9 @@ def main():
         sys.exit(1)
     try:
         api = Api()
-        window = webview.create_window("PCCooler GT360", html=HTML, width=720, height=900, js_api=api)
+        window = webview.create_window("PCCooler Display", html=HTML, width=720, height=900, js_api=api)
         api.set_window(window)
+        window.events.closed += _shutdown_helper
         if sys.platform == "linux":
             webview.start(gui="qt")
         else:

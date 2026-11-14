@@ -12475,26 +12475,30 @@ class ImageProcessor:
         """Create system info display"""
         img = Image.new('RGBA', (width, height), (20, 20, 40, 255))
         draw = ImageDraw.Draw(img)
+        k = min(1.0, width / 400)  # scale layout for small/narrow screens (e.g. 240x320)
+
+        def S(v: int) -> int:
+            return max(1, int(v * k))
         
         # Try to load a font (Linux or macOS)
         font_large = font_medium = font_small = None
         try:
             if sys.platform == 'darwin':
                 # macOS font paths
-                font_large = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 32)
-                font_medium = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
+                font_large = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", S(32))
+                font_medium = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", S(20))
+                font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", S(16))
             else:
                 # Linux font paths
-                font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-                font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+                font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", S(32))
+                font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", S(20))
+                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", S(16))
         except Exception:
             font_large = font_medium = font_small = ImageFont.load_default()
         
         # Header
-        draw.text((20, 20), "PCCooler GT360", fill=(100, 150, 255), font=font_large)
-        draw.text((20, 60), f"Display: {width}x{height}", fill=(200, 200, 200), font=font_medium)
+        draw.text((S(20), S(20)), "PCCooler GT360", fill=(100, 150, 255), font=font_large)
+        draw.text((S(20), S(60)), f"Display: {width}x{height}", fill=(200, 200, 200), font=font_medium)
         
         # Try to get system stats
         try:
@@ -12503,24 +12507,24 @@ class ImageProcessor:
             mem = psutil.virtual_memory()
             temp = psutil.sensors_temperatures() if hasattr(psutil, 'sensors_temperatures') else {}
             
-            y = 120
-            draw.text((20, y), f"CPU: {cpu:.1f}%", fill=(100, 255, 100), font=font_medium)
-            y += 40
-            draw.text((20, y), f"RAM: {mem.percent:.1f}%", fill=(255, 200, 100), font=font_medium)
-            y += 40
+            y = S(120)
+            draw.text((S(20), y), f"CPU: {cpu:.1f}%", fill=(100, 255, 100), font=font_medium)
+            y += S(40)
+            draw.text((S(20), y), f"RAM: {mem.percent:.1f}%", fill=(255, 200, 100), font=font_medium)
+            y += S(40)
             
             if temp:
                 for name, temps in list(temp.items())[:2]:
                     if temps:
                         t = temps[0].current
-                        draw.text((20, y), f"{name}: {t:.1f}°C", fill=(255, 100, 100), font=font_small)
-                        y += 30
+                        draw.text((S(20), y), f"{name}: {t:.1f}°C", fill=(255, 100, 100), font=font_small)
+                        y += S(30)
         except ImportError:
-            draw.text((20, 120), "Install psutil for stats:", fill=(255, 200, 100), font=font_medium)
-            draw.text((20, 160), "pip install psutil", fill=(200, 200, 200), font=font_small)
+            draw.text((S(20), S(120)), "Install psutil for stats:", fill=(255, 200, 100), font=font_medium)
+            draw.text((S(20), S(160)), "pip install psutil", fill=(200, 200, 200), font=font_small)
         
         # Footer
-        draw.text((20, height - 40), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+        draw.text((S(20), height - S(40)), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
                   fill=(150, 150, 150), font=font_small)
         
         return img

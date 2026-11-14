@@ -6,12 +6,15 @@ Supports both synchronous and asynchronous operations via wireio.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import subprocess
 import time
 from typing import Optional, Union
 
-from .constants import VENDOR_ID, PRODUCT_ID
+from .constants import (
+    VENDOR_ID, PRODUCT_IDS, DEFAULT_RESOLUTION, AUTO_RESOLUTION, model_for_ids,
+)
 from .protocol import log_message
 
 try:
@@ -72,43 +75,74 @@ class AsyncSerialDevice:
 DeviceType = Union[SerialDevice, AsyncSerialDevice]
 
 
-def _find_serial_port(verbose: bool = False) -> Optional[object]:
-    """Return first serial port matching VID/PID, or None."""
-    if verbose:
-        log_message("Scanning available serial ports...", "DEBUG", verbose)
+def _sysfs_usb_ids(device: str) -> tuple[Optional[int], Optional[int]]:
+    """Read USB VID/PID of a tty from sysfs (Linux). wireio does not report them there."""
+    if not sys.platform.startswith("linux") or not device:
+        return None, None
+    path = os.path.realpath(f"/sys/class/tty/{os.path.basename(device)}/device")
+    # Walk up from the USB interface to the USB device node holding idVendor/idProduct
+    while path.startswith("/sys/") and path != "/sys":
+        try:
+            with open(os.path.join(path, "idVendor")) as f:
+                vid = int(f.read().strip(), 16)
+            with open(os.path.join(path, "idProduct")) as f:
+                pid = int(f.read().strip(), 16)
+            return vid, pid
+        except (OSError, ValueError):
+            path = os.path.dirname(path)
+    return None, None
 
-    ports = list_ports()
+
+def _port_ids(port) -> tuple[Optional[int], Optional[int]]:
+    """Return (vid, pid) for a port, falling back to sysfs when not reported."""
+    if port.vid is not None and port.pid is not None:
+        return port.vid, port.pid
+    return _sysfs_usb_ids(port.device)
+
+
+def _is_known_device(port) -> bool:
+    vid, pid = _port_ids(port)
+    if vid == VENDOR_ID and pid in PRODUCT_IDS:
+        return True
+    hwid = (port.hwid or "").lower()
+    return any(f"{VENDOR_ID:04x}:{p:04x}" in hwid for p in PRODUCT_IDS)
+
+
+def _is_fallback_device(port) -> bool:
+    """CDC ACM ports that might be the display when VID/PID can't be determined."""
+    if port.description and "cdc_acm" in port.description.lower():
+        return True
+    return bool(port.device and "/dev/ttyACM" in port.device)
+
+
+def _select_port(ports, verbose: bool = False) -> Optional[object]:
+    """Pick the display port: known VID/PID first, then generic CDC ACM fallback."""
     for port in ports:
         if verbose:
-            vid_str = f"{port.vid:04x}" if port.vid is not None else "None"
-            pid_str = f"{port.pid:04x}" if port.pid is not None else "None"
+            vid, pid = _port_ids(port)
+            vid_str = f"{vid:04x}" if vid is not None else "None"
+            pid_str = f"{pid:04x}" if pid is not None else "None"
             log_message(
                 f"Checking port: {port.device} (VID={vid_str}, PID={pid_str}, HWID={port.hwid})",
                 "DEBUG", verbose
             )
-
-        # Exact match
-        if port.vid == VENDOR_ID and port.pid == PRODUCT_ID:
+        if _is_known_device(port):
             return port
 
-        # Linux Foundation VID (1d6b) often used for generic/simulated devices
-        if port.hwid and f"{VENDOR_ID:04x}:{PRODUCT_ID:04x}" in port.hwid.lower():
-            return port
-        
-        # Fallback: Some CDC ACM devices don't report VID/PID via pyserial
-        # Match by description containing "cdc_acm" or device pattern
-        if port.description and "cdc_acm" in port.description.lower():
+    for port in ports:
+        if _is_fallback_device(port):
             if verbose:
-                log_message(f"Found CDC ACM device by description: {port.device}", "DEBUG", verbose)
-            return port
-        
-        # Also match /dev/ttyACM* pattern on Linux
-        if port.device and "/dev/ttyACM" in port.device:
-            if verbose:
-                log_message(f"Found ACM device by path: {port.device}", "DEBUG", verbose)
+                log_message(f"Found CDC ACM device by fallback: {port.device}", "DEBUG", verbose)
             return port
 
     return None
+
+
+def _find_serial_port(verbose: bool = False) -> Optional[object]:
+    """Return first serial port matching a known VID/PID, or None."""
+    if verbose:
+        log_message("Scanning available serial ports...", "DEBUG", verbose)
+    return _select_port(list_ports(), verbose=verbose)
 
 
 async def find_serial_port_async(verbose: bool = False) -> Optional[object]:
@@ -118,34 +152,35 @@ async def find_serial_port_async(verbose: bool = False) -> Optional[object]:
 
     loop = asyncio.get_event_loop()
     ports = await loop.run_in_executor(None, list_ports)
+    return _select_port(ports, verbose=verbose)
 
-    for port in ports:
-        if verbose:
-            vid_str = f"{port.vid:04x}" if port.vid is not None else "None"
-            pid_str = f"{port.pid:04x}" if port.pid is not None else "None"
-            log_message(
-                f"Checking port: {port.device} (VID={vid_str}, PID={pid_str})",
-                "DEBUG", verbose
-            )
 
-        if port.vid == VENDOR_ID and port.pid == PRODUCT_ID:
-            return port
+def detect_model(verbose: bool = False) -> Optional[dict]:
+    """Return info of the connected display model (name, resolution, pid), or None."""
+    port = _find_serial_port(verbose=verbose)
+    if port is None:
+        return None
+    vid, pid = _port_ids(port)
+    model = model_for_ids(vid, pid)
+    if model is None:
+        return None
+    return {**model, "pid": pid, "port": port.device}
 
-        if port.hwid and f"{VENDOR_ID:04x}:{PRODUCT_ID:04x}" in port.hwid.lower():
-            return port
-        
-        # Fallback: Some CDC ACM devices don't report VID/PID
-        if port.description and "cdc_acm" in port.description.lower():
-            if verbose:
-                log_message(f"Found CDC ACM device by description: {port.device}", "DEBUG", verbose)
-            return port
-        
-        if port.device and "/dev/ttyACM" in port.device:
-            if verbose:
-                log_message(f"Found ACM device by path: {port.device}", "DEBUG", verbose)
-            return port
 
-    return None
+def resolve_resolution(resolution: Optional[str] = AUTO_RESOLUTION, verbose: bool = False) -> str:
+    """Resolve 'auto' (or None) to the detected model's resolution."""
+    if resolution and resolution != AUTO_RESOLUTION:
+        return resolution
+    try:
+        model = detect_model(verbose=verbose)
+    except Exception as e:
+        log_message(f"Model detection failed: {e}", "WARN", verbose)
+        model = None
+    if model:
+        log_message(f"Detected PCCooler {model['name']} -> {model['resolution']}", "INFO", verbose)
+        return model["resolution"]
+    log_message(f"Unknown model, using default resolution {DEFAULT_RESOLUTION}", "WARN", verbose)
+    return DEFAULT_RESOLUTION
 
 
 def reset_usb_device(verbose: bool = False) -> bool:
@@ -182,7 +217,7 @@ def open_device(max_retries: int = 10, verbose: bool = False) -> SerialDevice:
         log_message(f"Waiting for device... ({attempt+1}/{max_retries})", "WARN", verbose)
         time.sleep(0.5)
     else:
-        raise RuntimeError(f"Device not found (VID={VENDOR_ID:04x}, PID={PRODUCT_ID:04x})")
+        raise RuntimeError(f"Device not found (VID={VENDOR_ID:04x}, PID={'/'.join(f'{p:04x}' for p in PRODUCT_IDS)})")
 
     port = port_info.device
     log_message(f"Found device: {port} ({port_info.description})", "INFO", verbose)
@@ -224,7 +259,7 @@ async def open_device_async(max_retries: int = 10, verbose: bool = False) -> Asy
         log_message(f"Waiting for device... ({attempt+1}/{max_retries})", "WARN", verbose)
         await asyncio.sleep(0.5)
     else:
-        raise RuntimeError(f"Device not found (VID={VENDOR_ID:04x}, PID={PRODUCT_ID:04x})")
+        raise RuntimeError(f"Device not found (VID={VENDOR_ID:04x}, PID={'/'.join(f'{p:04x}' for p in PRODUCT_IDS)})")
 
     port = port_info.device
     log_message(f"Found device: {port} ({port_info.description})", "INFO", verbose)
